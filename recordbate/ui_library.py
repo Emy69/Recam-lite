@@ -9,24 +9,175 @@ from . import tools
 from .library import Library, LibraryItem
 from .ui_common import notify
 
+_SORTS = {
+    'recent': 'Más recientes',
+    'oldest': 'Más antiguas',
+    'largest': 'Más grandes',
+    'longest': 'Más largas',
+    'name': 'Nombre',
+}
+
+_SORT_KEYS = {
+    'recent': lambda i: -i.mtime,
+    'oldest': lambda i: i.mtime,
+    'largest': lambda i: -i.size,
+    'longest': lambda i: -(i.duration or 0),
+    'name': lambda i: i.path.stem.lower(),
+}
+
+# per-viewer conveniences stored in the browser: resume position, volume. All of
+# it lives client-side; failures (blocked storage) are silently ignored.
+_PLAYER_JS = '''
+(function () {
+    const v = document.getElementById('rb-player');
+    if (!v || v.dataset.rbInit) return;
+    v.dataset.rbInit = '1';
+    try {
+        const vol = localStorage.getItem('rb-vol');
+        if (vol !== null) v.volume = parseFloat(vol);
+    } catch (e) {}
+    v.addEventListener('volumechange', () => {
+        try { localStorage.setItem('rb-vol', v.volume); } catch (e) {}
+    });
+    v.addEventListener('loadedmetadata', () => {
+        try {
+            const t = parseFloat(localStorage.getItem('rb-pos:' + v.currentSrc));
+            if (t && t > 5 && t < v.duration - 10) v.currentTime = t;
+        } catch (e) {}
+    });
+    v.addEventListener('timeupdate', () => {
+        if (v._rbLast && Date.now() - v._rbLast < 3000) return;
+        v._rbLast = Date.now();
+        try {
+            if (v.duration && v.currentTime > v.duration - 15)
+                localStorage.removeItem('rb-pos:' + v.currentSrc);
+            else
+                localStorage.setItem('rb-pos:' + v.currentSrc, v.currentTime);
+        } catch (e) {}
+    });
+})();
+'''
+
 
 def build(library: Library, monitor=None):
     """Build the Biblioteca tab. Returns an async rescan callback."""
-    state = {'streamer': 'Todos', 'search': ''}
+    state = {'streamer': 'Todos', 'search': '', 'sort': 'recent',
+             'select': False, 'speed': 1.0}
+    selected: set[str] = set()
 
     # one reusable player: closing it only pauses, because destroying elements from
     # their own 'hide' event breaks the client session
     with ui.dialog() as player_dialog, ui.card().tight().classes('w-[880px] max-w-full'):
-        player_video = ui.video('', autoplay=True).classes('w-full')
-        with ui.row().classes('w-full justify-between items-center p-2'):
-            player_title = ui.label('').classes('text-sm truncate')
+        player_video = ui.video('', autoplay=True).props('id=rb-player').classes('w-full')
+        with ui.row().classes('w-full items-center gap-1 p-2 flex-nowrap'):
+            ui.button(icon='replay_10',
+                      on_click=lambda: ui.run_javascript(
+                          "const v=document.getElementById('rb-player');"
+                          'if (v) v.currentTime -= 10;')) \
+                .props('flat round dense').tooltip('Atrás 10 s')
+            ui.button(icon='forward_10',
+                      on_click=lambda: ui.run_javascript(
+                          "const v=document.getElementById('rb-player');"
+                          'if (v) v.currentTime += 10;')) \
+                .props('flat round dense').tooltip('Adelante 10 s')
+
+            def cycle_speed() -> None:
+                speeds = [1.0, 1.25, 1.5, 1.75, 2.0]
+                idx = speeds.index(state['speed']) if state['speed'] in speeds else 0
+                state['speed'] = speeds[(idx + 1) % len(speeds)]
+                speed_btn.set_text(f'{state["speed"]:g}×')
+                ui.run_javascript("const v=document.getElementById('rb-player');"
+                                  f"if (v) v.playbackRate = {state['speed']};")
+
+            speed_btn = ui.button('1×', on_click=cycle_speed) \
+                .props('flat dense no-caps').tooltip('Velocidad de reproducción')
+            player_title = ui.label('').classes('text-sm truncate grow text-right')
             ui.button('Cerrar', on_click=player_dialog.close).props('flat dense')
     player_dialog.on('hide', lambda: player_video.run_method('pause'))
 
     def play_item(item: LibraryItem) -> None:
+        state['speed'] = 1.0
+        speed_btn.set_text('1×')
+        # (re)arm the client-side handlers on every open; the guard inside makes
+        # this idempotent, and doing it here guarantees the client is connected
+        ui.run_javascript(_PLAYER_JS)
+        ui.run_javascript("const v=document.getElementById('rb-player');"
+                          'if (v) v.playbackRate = 1;')
         player_title.set_text(item.path.name)
         player_video.set_source('/media/' + urllib.parse.quote(item.rel))
         player_dialog.open()
+
+    def visible_items() -> list[LibraryItem]:
+        items = [i for i in library.items
+                 if (state['streamer'] == 'Todos' or i.streamer == state['streamer'])
+                 and state['search'].lower() in i.path.stem.lower()]
+        items.sort(key=_SORT_KEYS[state['sort']])
+        return items
+
+    def toggle_item(item: LibraryItem, value: bool) -> None:
+        (selected.add if value else selected.discard)(item.rel)
+        grid.refresh()
+        actionbar.refresh()
+
+    @ui.refreshable
+    def actionbar() -> None:
+        if not state['select']:
+            return
+        items = {i.rel: i for i in visible_items()}
+        chosen = [items[r] for r in selected if r in items]
+        size = tools.human_size(sum(i.size for i in chosen))
+        with ui.row().classes('w-full items-center gap-2 bg-red-950/30 rounded p-2'):
+            ui.label(f'{len(chosen)} seleccionadas · {size}').classes('text-sm')
+            ui.space()
+
+            def select_all() -> None:
+                selected.update(i.rel for i in visible_items())
+                grid.refresh()
+                actionbar.refresh()
+
+            def select_none() -> None:
+                selected.clear()
+                grid.refresh()
+                actionbar.refresh()
+
+            ui.button('Todas', on_click=select_all).props('flat dense no-caps')
+            ui.button('Ninguna', on_click=select_none).props('flat dense no-caps')
+
+            async def delete_selected() -> None:
+                if not chosen:
+                    return
+                with ui.dialog() as d, ui.card():
+                    ui.label(f'¿Enviar {len(chosen)} grabaciones ({size}) a la papelera?')
+                    with ui.row().classes('w-full justify-end gap-2'):
+                        ui.button('Cancelar', on_click=lambda: d.submit(False)).props('flat')
+                        ui.button('A la papelera', color='red',
+                                  on_click=lambda: d.submit(True))
+                if not await d:
+                    return
+                failed = 0
+                for item in chosen:
+                    try:
+                        library.delete(item)
+                    except Exception:
+                        failed += 1
+                selected.clear()
+                state['select'] = False
+                notify(f'{len(chosen) - failed} enviadas a la papelera'
+                       + (f' · {failed} fallaron' if failed else ''),
+                       type='warning' if failed else 'positive')
+                actionbar.refresh()
+                await rescan()
+
+            ui.button('A la papelera', icon='delete', color='red',
+                      on_click=delete_selected).props('dense no-caps')
+
+            def exit_select() -> None:
+                state['select'] = False
+                selected.clear()
+                grid.refresh()
+                actionbar.refresh()
+
+            ui.button('Listo', on_click=exit_select).props('flat dense no-caps')
 
     @ui.refreshable
     def grid() -> None:
@@ -34,12 +185,13 @@ def build(library: Library, monitor=None):
         active = [r for r in active
                   if (state['streamer'] == 'Todos' or r.streamer.username == state['streamer'])
                   and state['search'].lower() in r.streamer.username.lower()]
-        items = [i for i in library.items
-                 if (state['streamer'] == 'Todos' or i.streamer == state['streamer'])
-                 and state['search'].lower() in i.path.stem.lower()]
+        items = visible_items()
         parts = [f'{len(items)} vídeos']
         if active:
             parts.append(f'{len(active)} grabando')
+        total_dur = sum(i.duration or 0 for i in items)
+        if total_dur:
+            parts.append(tools.human_duration(total_dur))
         parts.append(tools.human_size(sum(i.size for i in items)))
         count_label.set_text(' · '.join(parts))
         if not active and not items:
@@ -52,7 +204,8 @@ def build(library: Library, monitor=None):
             for rec in active:
                 _recording_card(rec)
             for item in items:
-                _video_card(library, item, rescan, play_item)
+                _video_card(library, item, rescan, play_item,
+                            state['select'], item.rel in selected, toggle_item)
 
     async def rescan() -> None:
         await library.scan()
@@ -60,15 +213,29 @@ def build(library: Library, monitor=None):
         if state['streamer'] not in options:
             state['streamer'] = 'Todos'
         filter_select.set_options(options, value=state['streamer'])
+        selected.intersection_update({i.rel for i in library.items})
         grid.refresh()
+        actionbar.refresh()
 
     with ui.column().classes('w-full max-w-6xl mx-auto gap-3'):
         with ui.row().classes('w-full items-center gap-2'):
             ui.button(icon='refresh', on_click=rescan).props('flat round').tooltip('Actualizar')
             filter_select = ui.select(['Todos'], value='Todos', label='Streamer') \
-                .props('outlined dense options-dense').classes('w-48')
+                .props('outlined dense options-dense').classes('w-44')
+            sort_select = ui.select(_SORTS, value='recent', label='Ordenar') \
+                .props('outlined dense options-dense').classes('w-40')
             search = ui.input(placeholder='Buscar…').props('outlined dense clearable') \
-                .classes('w-56')
+                .classes('w-48')
+
+            def toggle_select() -> None:
+                state['select'] = not state['select']
+                if not state['select']:
+                    selected.clear()
+                grid.refresh()
+                actionbar.refresh()
+
+            ui.button(icon='checklist', on_click=toggle_select).props('flat round') \
+                .tooltip('Seleccionar varias (para borrar en lote)')
             ui.space()
             count_label = ui.label().classes('text-sm text-gray-500')
             ui.button('Abrir carpeta', icon='folder_open',
@@ -77,11 +244,15 @@ def build(library: Library, monitor=None):
         def on_filter() -> None:
             state['streamer'] = filter_select.value or 'Todos'
             state['search'] = search.value or ''
+            state['sort'] = sort_select.value or 'recent'
             grid.refresh()
+            actionbar.refresh()
 
         filter_select.on_value_change(on_filter)
+        sort_select.on_value_change(on_filter)
         search.on_value_change(on_filter)
 
+        actionbar()
         grid()
 
     return rescan
@@ -106,8 +277,9 @@ def _recording_card(rec) -> None:
             ui.label('aparecerá al terminar').classes('text-xs text-gray-500')
 
 
-def _video_card(library: Library, item: LibraryItem, rescan, play_item) -> None:
-    date_str = datetime.fromtimestamp(item.mtime).strftime('%d/%m/%Y %H:%M')
+def _video_card(library: Library, item: LibraryItem, rescan, play_item,
+                select_mode: bool, is_selected: bool, toggle_item) -> None:
+    exact_date = datetime.fromtimestamp(item.mtime).strftime('%d/%m/%Y %H:%M')
 
     def rename() -> None:
         with ui.dialog() as d, ui.card().classes('w-96'):
@@ -155,7 +327,13 @@ def _video_card(library: Library, item: LibraryItem, rescan, play_item) -> None:
             notify('No se pudo convertir (¿está ffmpeg disponible?)', type='negative')
         await rescan()
 
-    with ui.card().tight().classes('w-64').props('flat bordered'):
+    outline = ' outline outline-2 outline-red-600' if is_selected else ''
+    with ui.card().tight().classes('w-64 relative' + outline).props('flat bordered'):
+        if select_mode:
+            ui.checkbox(value=is_selected,
+                        on_change=lambda e: toggle_item(item, bool(e.value))) \
+                .props('dense keep-color color=red') \
+                .classes('absolute top-1 left-1 z-10 bg-black/60 rounded')
         if item.thumb:
             ui.image(str(item.thumb)).classes('w-full h-36 object-cover bg-black')
         else:
@@ -166,9 +344,9 @@ def _video_card(library: Library, item: LibraryItem, rescan, play_item) -> None:
             ui.label(item.path.stem).classes('text-sm font-medium truncate w-full') \
                 .tooltip(item.rel)
             meta = ' · '.join(filter(None, [
-                item.streamer, date_str,
+                item.streamer, tools.human_ago(item.mtime),
                 tools.human_duration(item.duration), tools.human_size(item.size)]))
-            ui.label(meta).classes('text-xs text-gray-500')
+            ui.label(meta).classes('text-xs text-gray-500').tooltip(exact_date)
             with ui.row().classes('w-full items-center gap-1'):
                 if item.is_ts:
                     ui.button('Convertir a MP4', icon='auto_fix_high', on_click=convert) \

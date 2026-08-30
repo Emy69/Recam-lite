@@ -1,19 +1,38 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import html as html_mod
+import os
 import time
 
 from nicegui import ui
 
+from . import config as config_mod
 from . import tools
 from .models import STATUS_LABELS, Status, Streamer
 from .monitor import Monitor
 from .platforms import PLATFORM_COLORS
 from .ui_common import copy_to_clipboard, notify, open_log_file, refresh
 
+# cards sort by usefulness: recording first, then live, then the rest
+_ORDER = {Status.RECORDING: 0, Status.ONLINE: 1, Status.UNKNOWN: 2, Status.OFFLINE: 3}
+
+_EVENT_STYLE = {
+    'start': ('fiber_manual_record', 'text-red-500'),
+    'saved': ('check_circle', 'text-green-600'),
+    'fail': ('warning', 'text-amber-500'),
+}
+
 
 def build(monitor: Monitor):
     """Build the Panel tab. Returns the callback the page timer should tick."""
+
+    def ordered_streamers() -> list[Streamer]:
+        return sorted(monitor.streamers,
+                      key=lambda s: (0 if s.key in monitor.recordings
+                                     else _ORDER.get(s.status, 2),
+                                     s.username.lower()))
 
     @ui.refreshable
     def streamer_list() -> None:
@@ -22,8 +41,23 @@ def build(monitor: Monitor):
                 ui.icon('videocam_off', size='xl').classes('text-gray-600')
                 ui.label('Añade tu primer canal pegando su URL arriba').classes('text-gray-500')
             return
-        for s in list(monitor.streamers):
+        for s in ordered_streamers():
             _streamer_card(monitor, s, streamer_list)
+
+    @ui.refreshable
+    def activity() -> None:
+        if not monitor.events:
+            return
+        with ui.card().classes('w-full gap-1 p-3').props('flat bordered'):
+            ui.label('Actividad reciente').classes('text-sm font-medium')
+            for ev in list(monitor.events)[-8:][::-1]:
+                icon, color = _EVENT_STYLE.get(ev['kind'], ('info', 'text-gray-500'))
+                with ui.row().classes('items-center gap-2 w-full flex-nowrap'):
+                    ui.icon(icon, size='xs').classes(color)
+                    ui.label(ev['text'][:120]).classes('text-xs truncate grow') \
+                        .tooltip(ev['text'])
+                    ui.label(tools.human_ago(ev['ts'])) \
+                        .classes('text-xs text-gray-500 whitespace-nowrap')
 
     with ui.column().classes('w-full max-w-4xl mx-auto gap-3'):
         with ui.row().classes('w-full items-center gap-2'):
@@ -51,11 +85,27 @@ def build(monitor: Monitor):
         with ui.row().classes('w-full items-center gap-4'):
             ui.switch('Vigilancia automática').bind_value(monitor, 'enabled') \
                 .tooltip('Apagada: no se comprueban canales ni se inician grabaciones nuevas')
+
+            async def check_all() -> None:
+                if not monitor.streamers:
+                    return
+                notify(f'Comprobando {len(monitor.streamers)} canales…', type='info')
+                results = await asyncio.gather(
+                    *(monitor.manual_check(s) for s in monitor.streamers),
+                    return_exceptions=True)
+                live = sum(1 for r in results if r == Status.ONLINE)
+                notify(f'{live} en vivo de {len(monitor.streamers)}', type='positive')
+                refresh(streamer_list)
+
+            ui.button('Comprobar ahora', icon='radar', on_click=check_all) \
+                .props('flat dense no-caps').tooltip('Comprueba todos los canales ya')
             ui.space()
             summary = ui.label().classes('text-sm text-gray-500')
 
         with ui.column().classes('w-full gap-2'):
             streamer_list()
+
+        activity()
 
     last_signature: list = [None]
 
@@ -63,8 +113,12 @@ def build(monitor: Monitor):
         rec_count = len(monitor.recordings)
         live = sum(1 for s in monitor.streamers
                    if s.status in (Status.ONLINE, Status.RECORDING))
-        summary.set_text(f'{len(monitor.streamers)} canales · {live} en vivo · '
-                         f'{rec_count} grabando')
+        parts = [f'{len(monitor.streamers)} canales', f'{live} en vivo',
+                 f'{rec_count} grabando']
+        free = tools.disk_free(monitor.cfg.recordings_dir)
+        if free is not None:
+            parts.append(f'{tools.human_size(free)} libres')
+        summary.set_text(' · '.join(parts))
         # rebuilding the cards throws away focus and open menus, so only do it when
         # something a card actually shows has changed
         signature = tuple(
@@ -72,10 +126,11 @@ def build(monitor: Monitor):
              s.key in monitor.recordings,
              getattr(monitor.recordings.get(s.key), 'state', None))
             for s in monitor.streamers
-        )
+        ) + ((monitor.events[-1]['ts'], len(monitor.events)) if monitor.events else ())
         if signature != last_signature[0]:
             last_signature[0] = signature
             streamer_list.refresh()
+            activity.refresh()
 
     return tick
 
@@ -117,6 +172,12 @@ def _streamer_card(monitor: Monitor, s: Streamer, streamer_list) -> None:
             notify(f'{s.username} eliminado de la lista', type='positive')
             refresh(streamer_list)
 
+    def open_folder() -> None:
+        folder = monitor.cfg.recordings_path / config_mod.sanitize_segment(s.username)
+        target = folder if folder.is_dir() else monitor.cfg.recordings_path
+        with contextlib.suppress(OSError, AttributeError):
+            os.startfile(str(target))   # type: ignore[attr-defined]
+
     def show_log() -> None:
         live = monitor.recordings.get(s.key)   # re-read: it may have ended since paint
         header = [f'Canal:   {s.username} ({s.platform})',
@@ -147,7 +208,8 @@ def _streamer_card(monitor: Monitor, s: Streamer, streamer_list) -> None:
                 ui.button('Abrir .log completo', icon='description',
                           on_click=open_log_file).props('flat')
                 ui.button('Copiar', icon='content_copy',
-                          on_click=lambda: copy_to_clipboard(text)).props('unelevated')
+                          on_click=lambda: copy_to_clipboard(text, 'Registro copiado')) \
+                    .props('unelevated')
                 ui.button('Cerrar', on_click=d.close).props('flat')
         d.open()
 
@@ -187,6 +249,9 @@ def _streamer_card(monitor: Monitor, s: Streamer, streamer_list) -> None:
             with ui.button(icon='more_vert').props('round flat'):
                 with ui.menu():
                     ui.menu_item('Ver registro', on_click=show_log)
+                    ui.menu_item('Abrir su carpeta de grabaciones', on_click=open_folder)
+                    ui.menu_item('Copiar URL del canal',
+                                 on_click=lambda: copy_to_clipboard(s.url, 'URL copiada'))
                     ui.menu_item('Quitar de la lista', on_click=do_remove)
 
 

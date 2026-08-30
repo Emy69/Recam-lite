@@ -25,7 +25,7 @@ def refresh(refreshable) -> None:
         refreshable.refresh()
 
 
-def copy_to_clipboard(text: str) -> None:
+def copy_to_clipboard(text: str, message: str = 'Copiado al portapapeles') -> None:
     # execCommand and not navigator.clipboard: the native window is not a secure context
     payload = json.dumps(text)
     ui.run_javascript(
@@ -33,7 +33,7 @@ def copy_to_clipboard(text: str) -> None:
         'a.value=t;a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);'
         'a.focus();a.select();try{document.execCommand("copy");}catch(e){}'
         'document.body.removeChild(a);})();')
-    notify('Registro copiado al portapapeles', type='positive')
+    notify(message, type='positive')
 
 
 def open_log_file() -> None:

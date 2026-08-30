@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 
 from nicegui import app, ui
@@ -150,11 +151,17 @@ def index() -> None:
             ui_settings.build(cfg, monitor)
 
     seen_version = [-1]   # differs from library.version, so the first tick scans
+    seen_count = [-1]
 
     async def tick() -> None:
         panel_tick()
         rec_count = len(monitor.recordings)
         header_status.set_text(f'⏺ {rec_count} grabando' if rec_count else '')
+        if rec_count != seen_count[0]:
+            # keep the recording count visible in the tab title too
+            seen_count[0] = rec_count
+            title = f'⏺ {rec_count} · RecordBate' if rec_count else 'RecordBate'
+            ui.run_javascript(f'document.title = {json.dumps(title)}')
         if seen_version[0] != library.version:
             seen_version[0] = library.version
             await library_rescan()

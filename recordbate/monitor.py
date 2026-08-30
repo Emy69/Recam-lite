@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import random
 import time
+from collections import deque
 
 import httpx
 
@@ -28,6 +29,11 @@ class Monitor:
         self.enabled = True
         self.client: httpx.AsyncClient | None = None
         self._task: asyncio.Task | None = None
+        # a short history of what happened, for the panel's activity feed
+        self.events: deque[dict] = deque(maxlen=50)
+
+    def _event(self, kind: str, text: str) -> None:
+        self.events.append({'ts': time.time(), 'kind': kind, 'text': text})
 
     async def start(self) -> None:
         self.client = httpx.AsyncClient(headers=platforms.REQUEST_HEADERS, timeout=15,
@@ -101,6 +107,7 @@ class Monitor:
             self._drop(streamer, rec, 'no se lanzó (emisión cifrada)', str(exc),
                        ENCRYPTED_COOLDOWN)
             streamer.status = Status.ONLINE   # it is live, we just cannot read it
+            self._event('fail', f'{streamer.username}: emisión cifrada, no grabable')
             logbook.event(f'NO GRABABLE  {streamer.username} ({streamer.platform}): {exc}')
             return None
         except platforms.StreamNotAvailable as exc:
@@ -110,9 +117,11 @@ class Monitor:
         except Exception as exc:
             self._drop(streamer, rec, 'error al lanzar',
                        f'No se pudo lanzar la grabación: {exc}', self.cfg.poll_seconds)
+            self._event('fail', f'{streamer.username}: error al lanzar la grabación')
             logbook.event(f'ERROR AL LANZAR  {streamer.username} '
                           f'({streamer.platform}): {exc!r}')
             return None
+        self._event('start', f'Grabando a {streamer.username} ({streamer.platform})')
         self.library.bump()   # show the "recording" card right away
         return rec
 
@@ -120,7 +129,10 @@ class Monitor:
         self.recordings.pop(rec.streamer.key, None)
         self.library.active_paths.difference_update({rec.ts_path, rec.mp4_path})
         if saved:
+            self._event('saved', f'{rec.streamer.username}: {rec.streamer.last_result}')
             self.library.bump()
+        else:
+            self._event('fail', f'{rec.streamer.username}: {rec.streamer.last_error}')
 
     async def stop_recording(self, streamer: Streamer) -> None:
         rec = self.recordings.get(streamer.key)

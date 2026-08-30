@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html as html_mod
+import os
 import socket
 import sys
 
@@ -67,6 +68,28 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
                      'Para recuperarla, clic en el icono de la bandeja. La X (o «Salir» en '
                      'la bandeja) cierra la app y finaliza las grabaciones en curso.') \
                 .classes('text-xs text-gray-500')
+
+        if os.name == 'nt':
+            with ui.card().classes('w-full gap-2').props('flat bordered'):
+                ui.label('Inicio con Windows').classes('text-lg font-medium')
+                auto_start = ui.switch('Arrancar RecordBate al iniciar sesión',
+                                       value=tools.startup_enabled())
+
+                def on_autostart(e) -> None:
+                    if tools.set_startup(bool(e.value)):
+                        ui.notify('Arrancará con Windows (sin ventana de consola)'
+                                  if e.value else 'Ya no arranca con Windows',
+                                  type='positive')
+                    else:
+                        ui.notify('No se pudo cambiar el inicio automático',
+                                  type='negative')
+                        auto_start.value = tools.startup_enabled()
+
+                auto_start.on_value_change(on_autostart)
+                ui.label('Crea (o quita) un acceso directo en la carpeta Inicio de tu '
+                         'usuario. Al iniciar sesión la app se abre y empieza a vigilar '
+                         'los canales con auto-grabar activado; minimízala a la bandeja '
+                         'y seguirá grabando de fondo.').classes('text-xs text-gray-500')
 
         with ui.card().classes('w-full gap-2').props('flat bordered'):
             ui.label('Herramientas').classes('text-lg font-medium')

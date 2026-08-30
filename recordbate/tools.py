@@ -5,7 +5,10 @@ import ctypes
 import os
 import shutil
 import subprocess
+import sys
+import time
 from ctypes import wintypes
+from datetime import datetime
 from functools import lru_cache
 from importlib import metadata
 from pathlib import Path
@@ -141,3 +144,67 @@ def human_duration(seconds: float | None) -> str:
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
     return f'{h}:{m:02d}:{s:02d}' if h else f'{m}:{s:02d}'
+
+
+def human_ago(ts: float) -> str:
+    """Relative time for the UI; falls back to a plain date past a week."""
+    delta = max(0.0, time.time() - ts)
+    if delta < 60:
+        return 'ahora mismo'
+    if delta < 3600:
+        return f'hace {int(delta // 60)} min'
+    if delta < 86400:
+        return f'hace {int(delta // 3600)} h'
+    days = int(delta // 86400)
+    if days == 1:
+        return 'ayer'
+    if days < 7:
+        return f'hace {days} días'
+    return datetime.fromtimestamp(ts).strftime('%d/%m/%Y')
+
+
+def disk_free(path) -> int | None:
+    try:
+        return shutil.disk_usage(str(path)).free
+    except OSError:
+        return None
+
+
+# --- start with Windows: a tiny .vbs in the user's Startup folder. A .bat there
+# would flash a console window on logon; WScript's Run with window mode 0 doesn't.
+
+def _startup_shortcut() -> Path | None:
+    if os.name != 'nt':
+        return None
+    appdata = os.environ.get('APPDATA')
+    if not appdata:
+        return None
+    return (Path(appdata) / 'Microsoft' / 'Windows' / 'Start Menu' / 'Programs'
+            / 'Startup' / 'RecordBate.vbs')
+
+
+def startup_enabled() -> bool:
+    p = _startup_shortcut()
+    return bool(p and p.exists())
+
+
+def set_startup(enabled: bool) -> bool:
+    p = _startup_shortcut()
+    if p is None:
+        return False
+    try:
+        if not enabled:
+            p.unlink(missing_ok=True)
+            return True
+        from . import config as config_mod
+        pythonw = config_mod.BASE_DIR / '.venv' / 'Scripts' / 'pythonw.exe'
+        if not pythonw.exists():
+            pythonw = Path(sys.executable).with_name('pythonw.exe')
+        app_py = config_mod.BASE_DIR / 'app.py'
+        # quotes are doubled inside a VBS string literal; 0 = hidden window
+        cmd = f'""{pythonw}"" ""{app_py}""'
+        p.write_text(f'CreateObject("WScript.Shell").Run "{cmd}", 0, False\r\n',
+                     encoding='utf-8')
+        return True
+    except OSError:
+        return False
