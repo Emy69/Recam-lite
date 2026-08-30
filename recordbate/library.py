@@ -91,7 +91,11 @@ class Library:
         # off the event loop: walking a big library stats hundreds of files
         entries = await asyncio.to_thread(self._walk, root)
 
-        stale = self._cache.keys() - {str(p) for p, _, _ in entries}
+        # drop cache entries for files that vanished — but only under THIS root, so
+        # switching the recordings folder back and forth doesn't wipe the cache
+        root_prefix = str(root)
+        stale = {k for k in self._cache if k.startswith(root_prefix)} \
+            - {str(p) for p, _, _ in entries}
         for key in stale:
             del self._cache[key]
 

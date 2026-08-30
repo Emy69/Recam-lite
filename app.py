@@ -7,7 +7,8 @@ import logging
 
 from nicegui import app, ui
 
-from recordbate import config, logbook, status, tray, ui_library, ui_panel, ui_settings
+from recordbate import (config, logbook, native_close, status, tray, ui_library,
+                        ui_panel, ui_settings, ui_theme)
 from recordbate.library import Library
 from recordbate.monitor import Monitor
 
@@ -102,6 +103,7 @@ def _show_from_tray() -> None:
 
 def _quit_app() -> None:
     tray.stop()
+    native_close.allow_close()   # else our own veto would cancel the shutdown
     app.shutdown()
 
 
@@ -109,40 +111,87 @@ def _setup_tray() -> None:
     if not NATIVE:
         return
     icon = tray.start(ICON_PATH, _show_from_tray, _quit_app)
-    if icon is None:
-        logbook.event('Sin bandeja: la ventana se minimiza a la barra de tareas')
-        return
-    _tray_active['on'] = True
-    # only hook this up once there is a tray icon to restore the window from
-    app.native.on('minimized', lambda _=None: _hide_to_tray())
-    logbook.event('Bandeja activa: minimizar esconde la ventana y sigue grabando')
+    if icon is not None:
+        _tray_active['on'] = True
+        logbook.event('Bandeja activa: al cerrar la ventana se puede esconder de fondo')
+    else:
+        logbook.event('Sin bandeja: cerrar la ventana solo ofrece salir')
+
+
+# --- the X asks instead of closing. Minimizing minimizes, nothing else. ---
+# native_close vetoes the native close and forwards a 'closing' event; each page
+# client registers a dialog here so the question shows up wherever someone looks.
+_close_dialogs: list[dict] = []
+
+
+def _on_window_closing(_args=None) -> None:
+    win = app.native.main_window
+    if win:   # the X can also come from the taskbar while minimized
+        with contextlib.suppress(Exception):
+            win.show()
+            win.restore()
+    rec_count = len(monitor.recordings)
+    warn = (f'Hay {rec_count} grabación(es) en curso; al cerrar se finalizan '
+            'y se guardan.' if rec_count else '')
+    opened = False
+    for entry in _close_dialogs[:]:
+        try:
+            entry['warn'].set_text(warn)
+            entry['warn'].set_visibility(bool(warn))
+            entry['dialog'].open()
+            opened = True
+        except Exception:
+            _close_dialogs.remove(entry)
+    if not opened:
+        # no page is connected to ask on; do the safe thing
+        if _tray_active['on']:
+            _hide_to_tray()
+        else:
+            _quit_app()
 
 
 if NATIVE:
+    native_close.install()
     app.on_startup(_setup_tray)
     app.on_shutdown(tray.stop)
+    app.native.on('closing', _on_window_closing)
 
 
 @ui.page('/')
 def index() -> None:
     """Every client (PC, phone…) builds its own view over the shared engine."""
-    ui.colors(primary='#e11d48')
-    ui.dark_mode(True)
+    ui_theme.apply()
+
+    with ui.dialog() as close_dialog, ui.card().classes('w-96'):
+        ui.label('¿Cerrar RecordBate?').classes('text-base font-medium')
+        close_warn = ui.label('').classes('text-xs text-amber-500')
+        if _tray_active['on']:
+            ui.label('«Esconder» la deja grabando de fondo; se recupera desde el '
+                     'icono de la bandeja.').classes('text-xs text-gray-500')
+        with ui.row().classes('w-full justify-end gap-2'):
+            ui.button('Cancelar', on_click=close_dialog.close).props('flat')
+            if _tray_active['on']:
+                ui.button('Esconder', icon='visibility_off',
+                          on_click=lambda: (close_dialog.close(), _hide_to_tray())) \
+                    .props('outline')
+            ui.button('Cerrar del todo', icon='power_settings_new', color='red',
+                      on_click=lambda: (close_dialog.close(), _quit_app()))
+    _close_dialogs.append({'dialog': close_dialog, 'warn': close_warn})
 
     with ui.header().classes('items-center gap-4 px-4'):
-        ui.icon('radio_button_checked').classes('text-2xl')
+        ui.icon('radio_button_checked').classes('text-2xl text-rose-600')
         ui.label('RecordBate').classes('text-xl font-bold')
-        with ui.tabs() as tabs:
+        with ui.tabs().props('indicator-color=primary active-color=primary') as tabs:
             tab_panel = ui.tab('Panel', icon='monitor_heart')
             tab_lib = ui.tab('Biblioteca', icon='video_library')
             tab_cfg = ui.tab('Ajustes', icon='settings')
         ui.space()
-        header_status = ui.label('').classes('text-sm opacity-80')
+        header_status = ui.label('').classes('text-sm text-rose-500 font-medium')
         if NATIVE and _tray_active['on']:
-            ui.button(icon='close_fullscreen', on_click=_hide_to_tray) \
-                .props('flat round').tooltip('Enviar a la bandeja (sigue grabando de fondo)')
+            ui.button(icon='visibility_off', on_click=_hide_to_tray) \
+                .props('flat round').tooltip('Esconder a la bandeja (sigue grabando)')
 
-    with ui.tab_panels(tabs, value=tab_panel).classes('w-full'):
+    with ui.tab_panels(tabs, value=tab_panel).classes('w-full bg-transparent'):
         with ui.tab_panel(tab_panel):
             panel_tick = ui_panel.build(monitor)
         with ui.tab_panel(tab_lib):

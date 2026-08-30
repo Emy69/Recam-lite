@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import urllib.parse
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from nicegui import ui
 
@@ -57,6 +57,16 @@ _PLAYER_JS = '''
     });
 })();
 '''
+
+
+def _day_bucket(ts: float) -> str:
+    d = datetime.fromtimestamp(ts).date()
+    today = date.today()
+    if d == today:
+        return 'Hoy'
+    if d == today - timedelta(days=1):
+        return 'Ayer'
+    return d.strftime('%d/%m/%Y')
 
 
 def build(library: Library, monitor=None):
@@ -116,7 +126,7 @@ def build(library: Library, monitor=None):
 
     def toggle_item(item: LibraryItem, value: bool) -> None:
         (selected.add if value else selected.discard)(item.rel)
-        grid.refresh()
+        listing.refresh()
         actionbar.refresh()
 
     @ui.refreshable
@@ -126,18 +136,18 @@ def build(library: Library, monitor=None):
         items = {i.rel: i for i in visible_items()}
         chosen = [items[r] for r in selected if r in items]
         size = tools.human_size(sum(i.size for i in chosen))
-        with ui.row().classes('w-full items-center gap-2 bg-red-950/30 rounded p-2'):
+        with ui.row().classes('w-full items-center gap-2 bg-red-950/30 rounded-xl p-2'):
             ui.label(f'{len(chosen)} seleccionadas · {size}').classes('text-sm')
             ui.space()
 
             def select_all() -> None:
                 selected.update(i.rel for i in visible_items())
-                grid.refresh()
+                listing.refresh()
                 actionbar.refresh()
 
             def select_none() -> None:
                 selected.clear()
-                grid.refresh()
+                listing.refresh()
                 actionbar.refresh()
 
             ui.button('Todas', on_click=select_all).props('flat dense no-caps')
@@ -174,13 +184,13 @@ def build(library: Library, monitor=None):
             def exit_select() -> None:
                 state['select'] = False
                 selected.clear()
-                grid.refresh()
+                listing.refresh()
                 actionbar.refresh()
 
             ui.button('Listo', on_click=exit_select).props('flat dense no-caps')
 
     @ui.refreshable
-    def grid() -> None:
+    def listing() -> None:
         active = list(monitor.recordings.values()) if monitor else []
         active = [r for r in active
                   if (state['streamer'] == 'Todos' or r.streamer.username == state['streamer'])
@@ -200,12 +210,30 @@ def build(library: Library, monitor=None):
                 ui.label('Aún no hay grabaciones (o el filtro no encuentra nada)') \
                     .classes('text-gray-500')
             return
-        with ui.row().classes('w-full gap-3'):
-            for rec in active:
-                _recording_card(rec)
-            for item in items:
-                _video_card(library, item, rescan, play_item,
-                            state['select'], item.rel in selected, toggle_item)
+
+        with ui.column().classes('w-full gap-0'):
+            if active:
+                _section_header('Grabando ahora')
+                for rec in active:
+                    _recording_row(rec)
+            if state['sort'] in ('recent', 'oldest'):
+                groups: list[tuple[str, list[LibraryItem]]] = []
+                for item in items:
+                    bucket = _day_bucket(item.mtime)
+                    if not groups or groups[-1][0] != bucket:
+                        groups.append((bucket, []))
+                    groups[-1][1].append(item)
+                for bucket, group in groups:
+                    _section_header(f'{bucket} · {len(group)} · '
+                                    f'{tools.human_size(sum(i.size for i in group))}')
+                    for item in group:
+                        _video_row(library, item, rescan, play_item,
+                                   state['select'], item.rel in selected, toggle_item)
+            else:
+                ui.element('div').classes('h-2')
+                for item in items:
+                    _video_row(library, item, rescan, play_item,
+                               state['select'], item.rel in selected, toggle_item)
 
     async def rescan() -> None:
         await library.scan()
@@ -214,10 +242,10 @@ def build(library: Library, monitor=None):
             state['streamer'] = 'Todos'
         filter_select.set_options(options, value=state['streamer'])
         selected.intersection_update({i.rel for i in library.items})
-        grid.refresh()
+        listing.refresh()
         actionbar.refresh()
 
-    with ui.column().classes('w-full max-w-6xl mx-auto gap-3'):
+    with ui.column().classes('w-full max-w-5xl mx-auto gap-3'):
         with ui.row().classes('w-full items-center gap-2'):
             ui.button(icon='refresh', on_click=rescan).props('flat round').tooltip('Actualizar')
             filter_select = ui.select(['Todos'], value='Todos', label='Streamer') \
@@ -231,7 +259,7 @@ def build(library: Library, monitor=None):
                 state['select'] = not state['select']
                 if not state['select']:
                     selected.clear()
-                grid.refresh()
+                listing.refresh()
                 actionbar.refresh()
 
             ui.button(icon='checklist', on_click=toggle_select).props('flat round') \
@@ -245,7 +273,7 @@ def build(library: Library, monitor=None):
             state['streamer'] = filter_select.value or 'Todos'
             state['search'] = search.value or ''
             state['sort'] = sort_select.value or 'recent'
-            grid.refresh()
+            listing.refresh()
             actionbar.refresh()
 
         filter_select.on_value_change(on_filter)
@@ -253,18 +281,24 @@ def build(library: Library, monitor=None):
         search.on_value_change(on_filter)
 
         actionbar()
-        grid()
+        listing()
 
     return rescan
 
 
-def _recording_card(rec) -> None:
-    """Placeholder card for a capture in flight; there is no finished file yet."""
-    with ui.card().tight().classes('w-64').props('flat bordered'):
-        with ui.element('div').classes(
-                'w-full h-36 bg-red-950/40 flex items-center justify-center'):
-            ui.icon('fiber_manual_record', size='lg').classes('text-red-500')
-        with ui.column().classes('p-3 pt-2 w-full gap-1'):
+def _section_header(text: str) -> None:
+    ui.label(text).classes('text-xs uppercase tracking-wider text-gray-500 mt-4 mb-1 px-2')
+
+
+def _recording_row(rec) -> None:
+    """A capture in flight; there is no finished file yet."""
+    with ui.row().classes('rb-row w-full items-center gap-3 px-2 py-1.5 rounded-xl '
+                          'flex-nowrap bg-red-950/25'):
+        with ui.element('div').classes('relative w-44 h-24 flex-none rounded-lg '
+                                       'overflow-hidden bg-red-950/40'):
+            with ui.element('div').classes('w-full h-full flex items-center justify-center'):
+                ui.icon('fiber_manual_record', size='md').classes('text-red-500')
+        with ui.column().classes('gap-0 grow min-w-0'):
             ui.label(rec.streamer.username).classes('text-sm font-medium truncate w-full')
             live = ui.label().classes('text-xs text-red-400 font-mono')
 
@@ -274,11 +308,11 @@ def _recording_card(rec) -> None:
 
             update()
             ui.timer(1.0, update)
-            ui.label('aparecerá al terminar').classes('text-xs text-gray-500')
+        ui.label('aparecerá al terminar').classes('text-xs text-gray-500 whitespace-nowrap')
 
 
-def _video_card(library: Library, item: LibraryItem, rescan, play_item,
-                select_mode: bool, is_selected: bool, toggle_item) -> None:
+def _video_row(library: Library, item: LibraryItem, rescan, play_item,
+               select_mode: bool, is_selected: bool, toggle_item) -> None:
     exact_date = datetime.fromtimestamp(item.mtime).strftime('%d/%m/%Y %H:%M')
 
     def rename() -> None:
@@ -327,39 +361,57 @@ def _video_card(library: Library, item: LibraryItem, rescan, play_item,
             notify('No se pudo convertir (¿está ffmpeg disponible?)', type='negative')
         await rescan()
 
-    outline = ' outline outline-2 outline-red-600' if is_selected else ''
-    with ui.card().tight().classes('w-64 relative' + outline).props('flat bordered'):
+    async def primary() -> None:
+        # the whole row is a target: select in select mode, play (or convert) otherwise
+        if select_mode:
+            toggle_item(item, not is_selected)   # rows re-render on toggle
+        elif item.is_ts:
+            await convert()
+        else:
+            play_item(item)
+
+    row_cls = 'rb-row w-full items-center gap-3 px-2 py-1.5 rounded-xl flex-nowrap'
+    if is_selected:
+        row_cls += ' bg-red-950/40 outline outline-1 outline-red-700'
+    with ui.row().classes(row_cls):
         if select_mode:
             ui.checkbox(value=is_selected,
                         on_change=lambda e: toggle_item(item, bool(e.value))) \
-                .props('dense keep-color color=red') \
-                .classes('absolute top-1 left-1 z-10 bg-black/60 rounded')
-        if item.thumb:
-            ui.image(str(item.thumb)).classes('w-full h-36 object-cover bg-black')
-        else:
-            with ui.element('div').classes(
-                    'w-full h-36 bg-gray-900 flex items-center justify-center'):
-                ui.icon('smart_display', size='lg').classes('text-gray-700')
-        with ui.column().classes('p-3 pt-2 w-full gap-1'):
-            ui.label(item.path.stem).classes('text-sm font-medium truncate w-full') \
-                .tooltip(item.rel)
-            meta = ' · '.join(filter(None, [
-                item.streamer, tools.human_ago(item.mtime),
-                tools.human_duration(item.duration), tools.human_size(item.size)]))
-            ui.label(meta).classes('text-xs text-gray-500').tooltip(exact_date)
-            with ui.row().classes('w-full items-center gap-1'):
-                if item.is_ts:
-                    ui.button('Convertir a MP4', icon='auto_fix_high', on_click=convert) \
-                        .props('flat dense no-caps').tooltip('Grabación sin procesar (.ts)')
-                else:
-                    ui.button(icon='play_arrow', on_click=lambda: play_item(item)) \
-                        .props('flat round dense').tooltip('Reproducir aquí')
-                ui.space()
-                with ui.button(icon='more_vert').props('flat round dense'):
-                    with ui.menu():
-                        ui.menu_item('Abrir con el reproductor del sistema',
-                                     on_click=lambda: library.open_external(item))
-                        ui.menu_item('Mostrar en la carpeta',
-                                     on_click=lambda: library.open_in_explorer(item))
-                        ui.menu_item('Renombrar', on_click=rename)
-                        ui.menu_item('Enviar a la papelera', on_click=delete)
+                .props('dense keep-color color=red')
+        thumb = ui.element('div').classes(
+            'relative w-44 h-24 flex-none cursor-pointer rounded-lg overflow-hidden bg-black')
+        with thumb:
+            if item.thumb:
+                ui.image(str(item.thumb)).classes('w-full h-full object-cover')
+            else:
+                with ui.element('div').classes(
+                        'w-full h-full flex items-center justify-center bg-gray-900'):
+                    ui.icon('smart_display', size='md').classes('text-gray-700')
+            if item.duration:
+                ui.label(tools.human_duration(item.duration)).classes(
+                    'absolute bottom-1 right-1 text-[11px] font-mono '
+                    'bg-black/75 px-1.5 py-0.5 rounded')
+            if item.is_ts:
+                ui.label('SIN PROCESAR').classes(
+                    'absolute top-1 left-1 text-[10px] font-medium '
+                    'bg-amber-500/90 text-black px-1.5 py-0.5 rounded')
+        thumb.on('click', primary)
+        info = ui.column().classes('gap-0 grow min-w-0 cursor-pointer')
+        with info:
+            ui.label(item.path.stem).classes('text-sm font-medium truncate w-full')
+            sub = ' · '.join(filter(None, [item.streamer, tools.human_ago(item.mtime)]))
+            ui.label(sub).classes('text-xs text-gray-500 truncate w-full').tooltip(exact_date)
+        info.on('click', primary)
+        ui.label(tools.human_size(item.size)).classes(
+            'text-xs text-gray-500 whitespace-nowrap')
+        if item.is_ts:
+            ui.button('Convertir a MP4', icon='auto_fix_high', on_click=convert) \
+                .props('flat dense no-caps').tooltip('Grabación sin procesar (.ts)')
+        with ui.button(icon='more_vert').props('flat round dense'):
+            with ui.menu():
+                ui.menu_item('Abrir con el reproductor del sistema',
+                             on_click=lambda: library.open_external(item))
+                ui.menu_item('Mostrar en la carpeta',
+                             on_click=lambda: library.open_in_explorer(item))
+                ui.menu_item('Renombrar', on_click=rename)
+                ui.menu_item('Enviar a la papelera', on_click=delete)

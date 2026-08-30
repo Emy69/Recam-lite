@@ -220,7 +220,8 @@ def _streamer_card(monitor: Monitor, s: Streamer, streamer_list) -> None:
                 f'background-color: {PLATFORM_COLORS.get(s.platform, "#666")}; color: {fg}')
             with ui.column().classes('gap-0 grow min-w-0'):
                 ui.link(s.username, s.url, new_tab=True) \
-                    .classes('text-base font-medium no-underline hover:underline')
+                    .classes('text-base font-medium no-underline hover:underline '
+                             '!text-gray-100')
                 sub = _subtitle(s, rec)
                 if sub:
                     ui.label(sub).classes('text-xs text-gray-500 truncate w-full')
