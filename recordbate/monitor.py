@@ -33,6 +33,11 @@ class Monitor:
         self.events: deque[dict] = deque(maxlen=50)
 
     def _event(self, kind: str, text: str) -> None:
+        # a platform-wide problem (like a 429 hold) hits many channels at once;
+        # don't let it flood the feed with identical lines
+        if self.events and self.events[-1]['text'] == text \
+                and time.time() - self.events[-1]['ts'] < 120:
+            return
         self.events.append({'ts': time.time(), 'kind': kind, 'text': text})
 
     async def start(self) -> None:
@@ -82,9 +87,14 @@ class Monitor:
         if streamer.key in self.recordings:
             return
         streamer.status = status
-        if (streamer.auto_record and status in (Status.ONLINE, Status.UNKNOWN)
+        if not (streamer.auto_record and status in (Status.ONLINE, Status.UNKNOWN)
                 and len(self.recordings) < self.cfg.max_concurrent):
-            await self.start_recording(streamer)
+            return
+        # UNKNOWN normally means "try anyway and let the recorder decide", but when
+        # the site is rate-limiting us, trying anyway is what keeps the limit alive
+        if status is Status.UNKNOWN and platforms.rate_limited(streamer.platform):
+            return
+        await self.start_recording(streamer)
 
     def _drop(self, streamer: Streamer, rec: Recording, exit_label: str,
               reason: str, cooldown: float) -> None:
@@ -109,6 +119,17 @@ class Monitor:
             streamer.status = Status.ONLINE   # it is live, we just cannot read it
             self._event('fail', f'{streamer.username}: emisión cifrada, no grabable')
             logbook.event(f'NO GRABABLE  {streamer.username} ({streamer.platform}): {exc}')
+            return None
+        except platforms.RateLimited as exc:
+            # wait the hold out plus some jitter, so 18 channels don't all knock
+            # again in the same second when it lifts
+            cooldown = max(60.0, platforms.rate_limit_remaining(streamer.platform)) \
+                + random.uniform(0, 30)
+            self._drop(streamer, rec, 'no se lanzó (límite de peticiones 429)',
+                       str(exc), cooldown)
+            self._event('fail', f'{streamer.platform}: límite de peticiones (429), '
+                                'pausa automática')
+            logbook.event(f'LÍMITE 429  {streamer.username} ({streamer.platform}): {exc}')
             return None
         except platforms.StreamNotAvailable as exc:
             self._drop(streamer, rec, 'no se lanzó (sin emisión pública)', str(exc), 30)

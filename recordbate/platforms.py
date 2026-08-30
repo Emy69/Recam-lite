@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import re
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -70,8 +71,14 @@ async def check_online(client: httpx.AsyncClient, platform: str, username: str) 
             if r.status_code == 200:
                 return Status.ONLINE if r.json().get('livestream') else Status.OFFLINE
         elif platform == 'chaturbate':
+            if not await _CB_THROTTLE.slot(max_wait=30):
+                return Status.UNKNOWN   # the hold is long; don't queue behind it
             r = await client.get(f'https://chaturbate.com/api/chatvideocontext/{username}/')
+            if r.status_code == 429:
+                _CB_THROTTLE.report_429()
+                return Status.UNKNOWN
             if r.status_code == 200:
+                _CB_THROTTLE.report_ok()
                 return Status.ONLINE if r.json().get('room_status') == 'public' else Status.OFFLINE
         elif platform == 'stripchat':
             r = await client.get(f'https://stripchat.com/api/front/v2/users/username/{username}')
@@ -93,6 +100,63 @@ class StreamEncrypted(StreamNotAvailable):
     Needs a decryption key the site rotates constantly and does not hand out, so
     retrying is pointless.
     """
+
+
+class RateLimited(StreamNotAvailable):
+    """The site answered 429; we back off instead of digging the hole deeper."""
+
+
+class _HostThrottle:
+    """Politeness for one API host: spaces requests out and, after a 429, holds
+    everything back for a growing while.
+
+    Bursting a check for every channel at once is what earns the 429s in the
+    first place; and once the site is limiting us, every extra request extends
+    the punishment, so during a hold callers give up fast instead of queueing.
+    Single event loop assumed: reservations happen between awaits, so no lock.
+    """
+
+    def __init__(self, min_interval: float) -> None:
+        self.min_interval = min_interval
+        self._next_slot = 0.0
+        self._hold_until = 0.0
+        self._penalty = 0.0
+
+    def holding(self) -> bool:
+        return time.monotonic() < self._hold_until
+
+    def hold_remaining(self) -> float:
+        return max(0.0, self._hold_until - time.monotonic())
+
+    async def slot(self, max_wait: float) -> bool:
+        """Reserve the next request slot; False if it is further than max_wait."""
+        now = time.monotonic()
+        start = max(now, self._next_slot, self._hold_until)
+        if start - now > max_wait:
+            return False
+        self._next_slot = start + self.min_interval
+        if start > now:
+            await asyncio.sleep(start - now)
+        return True
+
+    def report_429(self) -> None:
+        self._penalty = min(max(60.0, self._penalty * 2), 900.0)
+        self._hold_until = time.monotonic() + self._penalty
+
+    def report_ok(self) -> None:
+        self._penalty = 0.0
+
+
+_CB_THROTTLE = _HostThrottle(min_interval=1.2)
+
+
+def rate_limited(platform: str) -> bool:
+    """Is this platform currently holding off after a 429?"""
+    return platform == 'chaturbate' and _CB_THROTTLE.holding()
+
+
+def rate_limit_remaining(platform: str) -> float:
+    return _CB_THROTTLE.hold_remaining() if platform == 'chaturbate' else 0.0
 
 
 _STREAMLINK_QUALITY = {
@@ -163,6 +227,9 @@ async def resolve_stripchat_m3u8(username: str, quality: str) -> str:
 async def resolve_chaturbate_urls(username: str, quality: str) -> list[str]:
     """Fallback resolver: [video, audio] URLs of the public stream, via yt-dlp -g."""
     from . import tools
+    if not await _CB_THROTTLE.slot(max_wait=10):
+        raise RateLimited('chaturbate está limitando las peticiones (429); '
+                          f'se reintenta en ~{int(_CB_THROTTLE.hold_remaining()) + 1}s')
     fmt = _YTDLP_FORMAT.get(quality, 'bv*+ba/b')
     proc = await asyncio.create_subprocess_exec(
         sys.executable, '-m', 'yt_dlp', '-f', fmt, '-g', '--no-playlist',
@@ -198,11 +265,19 @@ async def resolve_chaturbate_master(username: str, quality: str) -> str:
     common shift and the shared source timeline survives intact (measured: 1.6 s
     of audio lead with two inputs, frame-exact alignment with one).
     """
+    if not await _CB_THROTTLE.slot(max_wait=10):
+        raise RateLimited('chaturbate está limitando las peticiones (429); '
+                          f'se reintenta en ~{int(_CB_THROTTLE.hold_remaining()) + 1}s')
     async with httpx.AsyncClient(headers=REQUEST_HEADERS, timeout=20,
                                  follow_redirects=True) as client:
         r = await client.get(f'https://chaturbate.com/api/chatvideocontext/{username}/')
+        if r.status_code == 429:
+            _CB_THROTTLE.report_429()
+            raise RateLimited('chaturbate devolvió 429 (demasiadas peticiones); '
+                              'pausa automática y reintento')
         if r.status_code != 200:
             raise StreamNotAvailable(f'chaturbate no responde ({r.status_code})')
+        _CB_THROTTLE.report_ok()
         data = r.json() or {}
         status = data.get('room_status')
         if status in ('offline', 'away'):

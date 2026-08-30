@@ -66,6 +66,8 @@ No dejes `dashboard` y `run` abiertos a la vez: los dos grabarían lo mismo.
 
 Un servicio asyncio comprueba cada X segundos quién está en vivo contra las APIs públicas de cada sitio. Si una no contesta, lo intenta igualmente y deja que el grabador decida.
 
+Las peticiones a un mismo sitio van espaciadas (nada de ráfagas con muchos canales), y si aun así llega un 429 la app entra en pausa automática con espera creciente hasta que el sitio deje de limitar — insistir solo alarga el castigo.
+
 La captura va a un `.ts`, que sobrevive a un corte de luz o a un cierre a lo bruto:
 
 - **Twitch y Kick** con streamlink.
