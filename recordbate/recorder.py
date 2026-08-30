@@ -68,12 +68,8 @@ class Recording:
 
     async def start(self) -> None:
         self.ts_path.parent.mkdir(parents=True, exist_ok=True)
-        # read the nudge fresh so changing it from the CLI or the GUI applies to the
-        # next capture without restarting
-        offset_ms = getattr(config_mod.load(), 'audio_offset_ms', 0)
         cmd = await platforms.build_record_cmd(
-            self.streamer.platform, self.streamer.username, self.cfg.quality, self.ts_path,
-            audio_offset_ms=offset_ms)
+            self.streamer.platform, self.streamer.username, self.cfg.quality, self.ts_path)
         self.cmd = ' '.join(cmd)
         logbook.event(f'INICIO  {self.streamer.username} ({self.streamer.platform})  →  {self.cmd}')
         self.proc = await asyncio.create_subprocess_exec(
@@ -157,6 +153,9 @@ class Recording:
 
     async def _finalize(self) -> None:
         self.state = 'procesando'
+        # the chaturbate capture leaves a small helper playlist next to the output
+        with contextlib.suppress(OSError):
+            self.ts_path.with_suffix('.m3u8').unlink(missing_ok=True)
         src = self._output_file() or self.ts_path
         with contextlib.suppress(OSError):
             if src.exists():
@@ -230,8 +229,7 @@ class Recording:
         self.on_finished(self, saved)
 
 
-async def _run_quiet(cmd: list[str], timeout: float | None = None,
-                     limit: int = 2000) -> tuple[int, str]:
+async def _run_quiet(cmd: list[str], timeout: float | None = None) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
@@ -242,80 +240,30 @@ async def _run_quiet(cmd: list[str], timeout: float | None = None,
         with contextlib.suppress(ProcessLookupError, OSError):
             proc.kill()
         return -1, 'timeout'
-    return proc.returncode or 0, out.decode('utf-8', errors='replace')[-limit:]
-
-
-async def _track_length(path: Path, stream: str, tail_from: float | None) -> float | None:
-    """Length of one track, measured from packet timestamps.
-
-    ffprobe's stream=duration is only an estimate on MPEG-TS — off by enough to
-    leave over a millisecond per second of drift behind. Packet timestamps are
-    exact, so we read the first few packets and the ones around the end (a seek,
-    never a full scan of a multi-gigabyte capture) and take the span.
-    """
-    ffprobe = tools.ffprobe_path()
-    if not ffprobe:
-        return None
-    args = [ffprobe, '-v', 'error', '-select_streams', stream,
-            '-show_entries', 'packet=pts_time,duration_time', '-of', 'csv=p=0']
-    if tail_from is not None:
-        args += ['-read_intervals', f'%+#60,{tail_from:.3f}%+#20000']
-    rc, out = await _run_quiet(args + [str(path)], timeout=600, limit=2_000_000)
-    if rc != 0:
-        return None
-    first = last = prev = None
-    tail_dur = 0.0
-    for line in out.splitlines():
-        pts, _, dur = line.partition(',')
-        try:
-            start = float(pts)
-        except ValueError:
-            continue
-        if first is None or start < first:
-            first = start
-        if last is None or start > last:
-            prev, last = last, start
-            # MPEG-TS leaves duration_time as N/A on video packets, so fall back to
-            # the gap to the previous one to account for the last frame
-            try:
-                tail_dur = float(dur)
-            except ValueError:
-                tail_dur = last - prev if prev is not None else 0.0
-        elif prev is None or start > prev:
-            prev = start
-    if first is None or last is None or last <= first:
-        return None
-    return last - first + tail_dur
-
-
-async def _av_lengths(path: Path) -> tuple[float | None, float | None]:
-    total = await probe_duration(path)
-    # with a short capture there is nothing to gain from seeking; read it whole
-    tail_from = max(total - 8, 0) if total and total > 20 else None
-    video, audio = await asyncio.gather(_track_length(path, 'v', tail_from),
-                                        _track_length(path, 'a', tail_from))
-    return video, audio
+    return proc.returncode or 0, out.decode('utf-8', errors='replace')[-2000:]
 
 
 async def remux_to_mp4(ts_path: Path, mp4_path: Path) -> Path | None:
-    """Wrap a capture into MP4. Video is always copied, never re-encoded.
+    """Wrap a capture into MP4 without re-encoding anything.
 
-    Cam sites hand out audio and video as two independent HLS streams whose clocks
-    run at slightly different rates, so the sound ends up a fraction of a percent
-    longer than the picture: unnoticeable in the first minutes, seconds out of sync
-    after a long session. When that happens the audio is stretched back with atempo
-    so both tracks end together; otherwise it is copied untouched.
+    Sync is the capture's job (see platforms.resolve_chaturbate_master), so both
+    tracks are copied with their timestamps untouched. The audio_offset_ms setting
+    is the one escape hatch: a manual nudge applied here by opening the same file
+    twice and shifting the audio input, which moves timestamps but never touches
+    the samples.
     """
     ffmpeg = tools.ffmpeg_path()
     if not ffmpeg or not ts_path.exists():
         return None
-    vlen, alen = await _av_lengths(ts_path)
-    audio_args = ['-c:a', 'copy']
-    if vlen and alen and abs(vlen - alen) > 0.08 and 0.9 < alen / vlen < 1.1:
-        audio_args = ['-c:a', 'aac', '-b:a', '160k', '-af', f'atempo={alen / vlen:.6f}']
-    rc, _ = await _run_quiet([ffmpeg, '-y', '-loglevel', 'error', '-i', str(ts_path),
-                              '-c:v', 'copy', *audio_args, '-movflags', '+faststart',
-                              str(mp4_path)], timeout=7200)
+    offset_ms = getattr(config_mod.load(), 'audio_offset_ms', 0)
+    cmd = [ffmpeg, '-y', '-loglevel', 'error']
+    if offset_ms:
+        cmd += ['-i', str(ts_path), '-itsoffset', f'{offset_ms / 1000:.3f}',
+                '-i', str(ts_path), '-map', '0:v:0', '-map', '1:a:0']
+    else:
+        cmd += ['-i', str(ts_path)]
+    cmd += ['-c', 'copy', '-movflags', '+faststart', str(mp4_path)]
+    rc, _ = await _run_quiet(cmd, timeout=7200)
     if rc == 0 and mp4_path.exists() and mp4_path.stat().st_size > 0:
         with contextlib.suppress(OSError):
             ts_path.unlink()

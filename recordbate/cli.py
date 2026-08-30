@@ -135,9 +135,8 @@ def cmd_offset(args: argparse.Namespace) -> int:
     cfg = config_mod.load()
     if args.ms is None:
         print(f'Ajuste de audio actual: {cfg.audio_offset_ms} ms')
-        print('  Normalmente debe quedarse en 0: el desfase que se acumula a lo largo')
-        print('  de la grabación se corrige solo al convertir a MP4. Úsalo solo si el')
-        print('  audio sale movido ya desde el primer segundo.')
+        print('  Normalmente debe quedarse en 0: las grabaciones salen sincronizadas')
+        print('  por sí solas. Se aplica al convertir a MP4, sin recodificar.')
         print('  Uso:  offset <ms>   ·   adelantado → positivo (lo retrasa) ; '
               'atrasado → negativo')
         return 0
@@ -150,7 +149,7 @@ def cmd_offset(args: argparse.Namespace) -> int:
     else:
         effect = 'sin ajuste'
     print(f'Ajuste de audio = {cfg.audio_offset_ms} ms ({effect}). '
-          'Aplica a las grabaciones que empiecen a partir de ahora.')
+          'Se aplica al convertir a MP4 las grabaciones que terminen a partir de ahora.')
     return 0
 
 

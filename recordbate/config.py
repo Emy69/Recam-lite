@@ -25,9 +25,9 @@ class Config:
     lan_access: bool = False
     filename_template: str = DEFAULT_TEMPLATE
     port: int = 8211
-    # Manual audio nudge for cam sites, applied at capture time with -itsoffset.
-    # Positive delays the audio, negative pulls it forward. Drift is corrected
-    # automatically on remux, so this is only for a constant offset.
+    # Manual audio nudge, applied when a capture is remuxed to MP4. Positive
+    # delays the audio, negative pulls it forward. Normally 0: capture keeps the
+    # source timeline, so recordings come out aligned on their own.
     audio_offset_ms: int = 0
 
     @property

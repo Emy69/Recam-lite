@@ -161,10 +161,7 @@ async def resolve_stripchat_m3u8(username: str, quality: str) -> str:
 
 
 async def resolve_chaturbate_urls(username: str, quality: str) -> list[str]:
-    """[video, audio] (or a single combined URL) for the public stream, via yt-dlp -g.
-
-    Only the URLs come from yt-dlp; a single ffmpeg does the downloading and muxing.
-    """
+    """Fallback resolver: [video, audio] URLs of the public stream, via yt-dlp -g."""
     from . import tools
     fmt = _YTDLP_FORMAT.get(quality, 'bv*+ba/b')
     proc = await asyncio.create_subprocess_exec(
@@ -189,8 +186,86 @@ async def resolve_chaturbate_urls(username: str, quality: str) -> list[str]:
     return urls
 
 
-async def build_record_cmd(platform: str, username: str, quality: str, out_ts: Path,
-                           audio_offset_ms: int = 0) -> list[str]:
+async def resolve_chaturbate_master(username: str, quality: str) -> str:
+    """A minimal master playlist for the public stream: one video variant plus its
+    matching audio rendition, with absolute URLs.
+
+    Feeding this to ffmpeg as a SINGLE input is what keeps the recording in sync.
+    With the audio playlist as a second -i, ffmpeg shifts each input to start at
+    zero independently; it opens the video first, spends a second or three probing
+    it, and by then the audio's live edge has moved on — so the audio lands that
+    far ahead of the picture, a different amount every capture. One input gets one
+    common shift and the shared source timeline survives intact (measured: 1.6 s
+    of audio lead with two inputs, frame-exact alignment with one).
+    """
+    async with httpx.AsyncClient(headers=REQUEST_HEADERS, timeout=20,
+                                 follow_redirects=True) as client:
+        r = await client.get(f'https://chaturbate.com/api/chatvideocontext/{username}/')
+        if r.status_code != 200:
+            raise StreamNotAvailable(f'chaturbate no responde ({r.status_code})')
+        data = r.json() or {}
+        status = data.get('room_status')
+        if status in ('offline', 'away'):
+            raise StreamNotAvailable('no está emitiendo ahora')
+        if status and status != 'public':
+            raise StreamNotAvailable(f'sin emisión pública (estado: {status})')
+        master_url = data.get('hls_source')
+        if not master_url:
+            raise StreamNotAvailable('chaturbate no dio la URL del directo')
+        r2 = await client.get(master_url)
+        if r2.status_code != 200 or '#EXTM3U' not in r2.text:
+            raise StreamNotAvailable('el playlist del directo no está disponible')
+
+    origin = re.match(r'(https?://[^/]+)', master_url).group(1)
+    base_dir = master_url.rsplit('/', 1)[0]
+
+    def absolutize(uri: str) -> str:
+        if '://' in uri:
+            return uri
+        if uri.startswith('//'):
+            return 'https:' + uri
+        if uri.startswith('/'):
+            return origin + uri
+        return base_dir + '/' + uri
+
+    audio_lines: dict[str, str] = {}
+    variants: list[tuple[int, int, str, str]] = []   # height, bandwidth, inf line, url
+    info = None
+    for line in r2.text.splitlines():
+        line = line.strip()
+        if line.startswith('#EXT-X-MEDIA:') and 'TYPE=AUDIO' in line:
+            gid = re.search(r'GROUP-ID="([^"]+)"', line)
+            uri = re.search(r'URI="([^"]+)"', line)
+            if gid and uri:
+                audio_lines[gid.group(1)] = line.replace(uri.group(1),
+                                                         absolutize(uri.group(1)))
+        elif line.startswith('#EXT-X-STREAM-INF:'):
+            info = line
+        elif info and line and not line.startswith('#'):
+            height = re.search(r'RESOLUTION=\d+x(\d+)', info)
+            bandwidth = re.search(r'BANDWIDTH=(\d+)', info)
+            variants.append((int(height.group(1)) if height else 0,
+                             int(bandwidth.group(1)) if bandwidth else 0,
+                             info, absolutize(line)))
+            info = None
+    if not variants:
+        raise StreamNotAvailable('el playlist del directo no lista calidades')
+
+    cap = _QUALITY_CAP.get(quality, 100_000)
+    eligible = [v for v in variants if v[0] <= cap] or variants
+    eligible.sort(key=lambda v: (v[0], v[1]))
+    _, _, inf, variant_url = eligible[-1]
+
+    lines = ['#EXTM3U', '#EXT-X-VERSION:6', '#EXT-X-INDEPENDENT-SEGMENTS']
+    group = re.search(r'AUDIO="([^"]+)"', inf)
+    if group and group.group(1) in audio_lines:
+        lines.append(audio_lines[group.group(1)])
+    lines += [inf, variant_url]
+    return '\n'.join(lines) + '\n'
+
+
+async def build_record_cmd(platform: str, username: str, quality: str,
+                           out_ts: Path) -> list[str]:
     from . import tools
 
     url = canonical_url(platform, username)
@@ -212,23 +287,31 @@ async def build_record_cmd(platform: str, username: str, quality: str, out_ts: P
                 '-user_agent', REQUEST_HEADERS['User-Agent'],
                 '-i', m3u8, '-c', 'copy', '-f', 'mpegts', str(out_ts)]
 
-    # Chaturbate splits low-latency HLS into separate audio and video playlists. One
-    # ffmpeg pulls both and muxes them copying each as-is, which keeps the timestamps
-    # the stream already carries — re-encoding the audio here rewrote them and threw
-    # the sync off. Output is progressive mpegts so it survives a hard stop.
-    urls = await resolve_chaturbate_urls(username, quality)
-    offset = audio_offset_ms / 1000
-    cmd = [ffmpeg, '-y', '-hide_banner', '-loglevel', 'warning',
-           '-user_agent', REQUEST_HEADERS['User-Agent']]
-    for i, u in enumerate(urls):
-        # -itsoffset applies to the input that follows, so only to the audio one
-        if i == 1 and offset:
-            cmd += ['-itsoffset', f'{offset:.3f}']
-        cmd += ['-i', u]
-    if len(urls) >= 2:
-        cmd += ['-map', '0:v:0', '-map', '1:a:0']
-    cmd += ['-c', 'copy']
-    if offset and len(urls) >= 2:
-        cmd += ['-avoid_negative_ts', 'make_zero']
-    cmd += ['-f', 'mpegts', str(out_ts)]
-    return cmd
+    # Chaturbate. Preferred path: a local master playlist handed to ffmpeg as ONE
+    # input (see resolve_chaturbate_master for why this is what keeps A/V in sync).
+    # No -user_agent here: the input is a local file and the option belongs to the
+    # http protocol, so ffmpeg rejects it — the CDN serves fine without it.
+    try:
+        master = await resolve_chaturbate_master(username, quality)
+    except StreamNotAvailable:
+        raise
+    except Exception:
+        # the page changed on us; the yt-dlp route still records, just with the
+        # audio-lead problem, which beats not recording at all
+        urls = await resolve_chaturbate_urls(username, quality)
+        cmd = [ffmpeg, '-y', '-hide_banner', '-loglevel', 'warning',
+               '-user_agent', REQUEST_HEADERS['User-Agent']]
+        for u in urls:
+            cmd += ['-i', u]
+        if len(urls) >= 2:
+            cmd += ['-map', '0:v:0', '-map', '1:a:0']
+        return cmd + ['-c', 'copy', '-f', 'mpegts', str(out_ts)]
+
+    master_path = out_ts.with_suffix('.m3u8')
+    master_path.parent.mkdir(parents=True, exist_ok=True)
+    master_path.write_text(master, encoding='utf-8')
+    return [ffmpeg, '-y', '-hide_banner', '-loglevel', 'warning',
+            '-protocol_whitelist', 'file,http,https,tcp,tls,crypto',
+            '-i', str(master_path),
+            '-map', '0:v:0', '-map', '0:a:0',
+            '-c', 'copy', '-f', 'mpegts', str(out_ts)]

@@ -47,11 +47,10 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
             with ui.row().classes('w-full items-center gap-3'):
                 audio_off = ui.number('Ajuste de audio (ms)', value=cfg.audio_offset_ms,
                                       min=-2000, max=2000, step=50).classes('w-44')
-                ui.label('Déjalo en 0: el desfase que se acumula durante la grabación se '
-                         'corrige solo al convertir a MP4. Úsalo únicamente si el audio '
-                         'sale movido desde el primer segundo (atrasado → negativo, '
-                         'adelantado → positivo). Solo cam sites.') \
-                    .classes('text-xs text-gray-500 grow')
+                ui.label('Déjalo en 0: las grabaciones salen sincronizadas por sí solas. '
+                         'Si alguna se oye movida, ajusta esto (adelantado → positivo, '
+                         'atrasado → negativo); se aplica al convertir a MP4, sin '
+                         'recodificar.').classes('text-xs text-gray-500 grow')
 
         with ui.card().classes('w-full gap-2').props('flat bordered'):
             ui.label('Acceso').classes('text-lg font-medium')

@@ -69,11 +69,11 @@ Un servicio asyncio comprueba cada X segundos quién está en vivo contra las AP
 La captura va a un `.ts`, que sobrevive a un corte de luz o a un cierre a lo bruto:
 
 - **Twitch y Kick** con streamlink.
-- **Stripchat y Chaturbate** con ffmpeg directo. yt-dlp solo resuelve las URLs; estos sitios publican audio y vídeo como dos HLS separados y un único ffmpeg los baja y los muxea copiando ambos tal cual.
+- **Stripchat y Chaturbate** con ffmpeg directo, que baja el HLS y lo muxea copiando audio y vídeo tal cual, sin recodificar nada.
 
-Al terminar, remux a MP4 sin recodificar el vídeo, miniatura y a la biblioteca.
+Al terminar, remux a MP4 (también copia pura), miniatura y a la biblioteca.
 
-**Sincronía de audio.** Los dos HLS de los cam sites llevan relojes ligeramente distintos, así que el audio acaba durando una fracción de porcentaje más que la imagen: nada al principio, varios segundos de desfase después de una sesión larga. Al convertir a MP4 se miden ambas pistas por timestamps de paquete y, si no coinciden, el audio se estira con `atempo` para que terminen a la vez. El ajuste manual de Ajustes solo hace falta si el audio sale movido desde el primer segundo.
+**Sincronía de audio.** Los cam sites publican el audio y el vídeo como dos playlists HLS separados. Si se le pasan a ffmpeg como dos inputs, desplaza cada uno a cero por su cuenta: abre primero el vídeo, tarda un par de segundos en sondearlo, y para entonces el live-edge del audio ya avanzó — el audio queda adelantado esa cantidad, distinta en cada grabación. La solución es dárselo como **un solo input**: un pequeño master playlist local con la variante de vídeo elegida y su pista de audio, de forma que ffmpeg aplica un único desplazamiento común y la línea de tiempo compartida de la fuente se conserva intacta (verificado por correlación cruzada: de 1.6 s de adelanto a alineación exacta). El ajuste manual de Ajustes queda como retoque fino y se aplica al convertir a MP4, desplazando timestamps sin tocar las muestras.
 
 Los procesos de grabación quedan atados a un job object de Windows: si la app muere de golpe, el sistema se los lleva por delante en vez de dejar ffmpeg grabando huérfano.
 
