@@ -1,0 +1,20 @@
+# recordings and their thumbnails
+/grabaciones/
+.thumbs/
+
+# local state: config with absolute paths, channel list, log, cache, pending commands
+/data/
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# editors / tooling
+.claude/
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini

@@ -1,0 +1,321 @@
+"""RecordBate without a GUI: recording daemon plus channel management.
+
+    python -m recordbate.cli dashboard           # live interactive panel (the nice one)
+    python -m recordbate.cli run                 # headless daemon, Ctrl+C stops it cleanly
+    python -m recordbate.cli add <url>           # add a channel, auto-record on
+    python -m recordbate.cli remove <channel>    # drop a channel
+    python -m recordbate.cli auto <channel> on   # toggle auto-record (on|off)
+    python -m recordbate.cli list                # list the channels
+    python -m recordbate.cli status              # who is live right now?
+    python -m recordbate.cli now                 # what is being recorded right now?
+    python -m recordbate.cli stop <channel>      # stop a capture in flight (or 'all')
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import contextlib
+import signal
+import sys
+import time
+
+from . import config as config_mod
+from . import logbook, platforms, status as status_mod, tools
+from .library import Library
+from .models import STATUS_LABELS
+from .monitor import Monitor
+
+STALE_AFTER = 30   # seconds; past this the status file is nobody's live state
+
+
+def _build() -> tuple[config_mod.Config, Monitor]:
+    cfg = config_mod.load()
+    library = Library(cfg)
+    return cfg, Monitor(cfg, config_mod.load_streamers(), library)
+
+
+def _match(streamers, query: str):
+    q = query.strip().lower()
+    return [s for s in streamers if q in (s.username.lower(), s.url.lower(), s.key)]
+
+
+def cmd_list(_args: argparse.Namespace) -> int:
+    streamers = config_mod.load_streamers()
+    if not streamers:
+        print('No hay canales. Añade con:  python -m recordbate.cli add <url>')
+        return 0
+    print(f'{len(streamers)} canales:')
+    for s in streamers:
+        auto = 'auto' if s.auto_record else 'manual'
+        print(f'  [{s.platform:10}] {s.username:22} {auto:6}  {s.url}')
+    return 0
+
+
+def cmd_add(args: argparse.Namespace) -> int:
+    _cfg, monitor = _build()
+    try:
+        s = monitor.add_streamer(args.url)
+    except ValueError as exc:
+        print(f'Error: {exc}', file=sys.stderr)
+        return 1
+    print(f'Añadido: {s.username} ({s.platform})')
+    return 0
+
+
+def cmd_auto(args: argparse.Namespace) -> int:
+    streamers = config_mod.load_streamers()
+    found = _match(streamers, args.channel)
+    if not found:
+        print(f'No encontré ningún canal que coincida con «{args.channel}»', file=sys.stderr)
+        return 1
+    on = args.state == 'on'
+    for s in found:
+        s.auto_record = on
+    config_mod.save_streamers(streamers)
+    for s in found:
+        print(f'{s.username}: auto-grabar {"ACTIVADO" if on else "desactivado"}')
+    return 0
+
+
+def cmd_remove(args: argparse.Namespace) -> int:
+    streamers = config_mod.load_streamers()
+    removed = _match(streamers, args.channel)
+    if not removed:
+        print(f'No encontré ningún canal que coincida con «{args.channel}»', file=sys.stderr)
+        return 1
+    config_mod.save_streamers([s for s in streamers if s not in removed])
+    for s in removed:
+        print(f'Eliminado: {s.username} ({s.platform})')
+    return 0
+
+
+async def _check_all() -> int:
+    import httpx
+    _cfg, monitor = _build()
+    if not monitor.streamers:
+        print('No hay canales.')
+        return 0
+    async with httpx.AsyncClient(headers=platforms.REQUEST_HEADERS, timeout=15,
+                                 follow_redirects=True) as client:
+        async def one(s) -> None:
+            st = await platforms.check_online(client, s.platform, s.username)
+            print(f'  {STATUS_LABELS[st][0]:12} [{s.platform}] {s.username}')
+        await asyncio.gather(*(one(s) for s in monitor.streamers))
+    return 0
+
+
+def cmd_status(_args: argparse.Namespace) -> int:
+    return asyncio.run(_check_all())
+
+
+def cmd_now(_args: argparse.Namespace) -> int:
+    data = status_mod.read()
+    if not data:
+        print('No hay estado. ¿Está corriendo el daemon (recordbate-cli run) o la app?')
+        return 1
+    age = time.time() - data.get('ts', 0)
+    if age > STALE_AFTER:
+        print(f'⚠ El estado tiene {int(age)}s de antigüedad — el daemon/app parece parado.')
+    recs = data.get('recording', [])
+    watching = 'ON' if data.get('enabled', True) else 'OFF'
+    if not recs:
+        print(f'Nada grabando ahora. ({data.get("channels", 0)} canales · '
+              f'vigilancia {watching})')
+        return 0
+    print(f'Grabando {len(recs)} · {data.get("channels", 0)} canales · '
+          f'vigilancia {watching}:')
+    for r in recs:
+        print(f'  ● {r["user"]:22} [{r["platform"]:10}] '
+              f'{tools.human_duration(r["elapsed"]):>8}  '
+              f'{tools.human_size(r["size"]):>9}  {r["state"]}')
+    return 0
+
+
+def cmd_offset(args: argparse.Namespace) -> int:
+    cfg = config_mod.load()
+    if args.ms is None:
+        print(f'Ajuste de audio actual: {cfg.audio_offset_ms} ms')
+        print('  Normalmente debe quedarse en 0: el desfase que se acumula a lo largo')
+        print('  de la grabación se corrige solo al convertir a MP4. Úsalo solo si el')
+        print('  audio sale movido ya desde el primer segundo.')
+        print('  Uso:  offset <ms>   ·   adelantado → positivo (lo retrasa) ; '
+              'atrasado → negativo')
+        return 0
+    cfg.audio_offset_ms = max(-2000, min(2000, int(args.ms)))
+    config_mod.save(cfg)
+    if cfg.audio_offset_ms > 0:
+        effect = 'retrasa el audio'
+    elif cfg.audio_offset_ms < 0:
+        effect = 'adelanta el audio'
+    else:
+        effect = 'sin ajuste'
+    print(f'Ajuste de audio = {cfg.audio_offset_ms} ms ({effect}). '
+          'Aplica a las grabaciones que empiecen a partir de ahora.')
+    return 0
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    channel = args.channel.strip()
+    everything = channel.lower() in ('all', '*')
+    data = status_mod.read()
+    if not data or time.time() - data.get('ts', 0) > STALE_AFTER:
+        print('⚠ El daemon no parece estar corriendo (recordbate-cli run). '
+              'La orden quedará pendiente hasta que arranque.')
+    elif not everything:
+        recording = {r['user'].lower() for r in data.get('recording', [])}
+        if channel.lower() not in recording:
+            print(f'Aviso: «{channel}» no aparece grabando ahora mismo; '
+                  'envío la orden igual.')
+    status_mod.send_command('stop', channel=channel)
+    target = 'TODAS las grabaciones' if everything else f'«{channel}»'
+    print(f'Orden enviada: parar {target}. Se aplica en unos segundos '
+          '(se finaliza a .mp4). Con auto-grabar ON volverá tras el enfriamiento; '
+          'para que no reanude usa:  auto <canal> off')
+    return 0
+
+
+def _install_signal_handlers(stop: asyncio.Event, loop: asyncio.AbstractEventLoop) -> None:
+    def handler(*_a) -> None:
+        loop.call_soon_threadsafe(stop.set)
+        with contextlib.suppress(Exception):
+            signal.signal(signal.SIGINT, signal.SIG_DFL)   # a second Ctrl+C really quits
+    for sig in ('SIGINT', 'SIGTERM', 'SIGBREAK'):          # SIGBREAK = Ctrl+Break
+        num = getattr(signal, sig, None)
+        if num is not None:
+            with contextlib.suppress(Exception):
+                signal.signal(num, handler)
+
+
+def _live_line(monitor: Monitor) -> str:
+    parts = [f'{r.streamer.username} {tools.human_duration(r.elapsed)}/'
+             f'{tools.human_size(r.size)}' for r in monitor.recordings.values()]
+    return f'▶ grabando ({len(parts)}): ' + ' · '.join(parts)
+
+
+async def _apply_commands(monitor: Monitor) -> None:
+    for cmd in status_mod.drain_commands():
+        if cmd.get('action') != 'stop':
+            continue
+        ch = (cmd.get('channel') or '').strip().lower()
+        recording = [s for s in monitor.streamers if s.key in monitor.recordings]
+        targets = (recording if ch in ('all', '*', '')
+                   else [s for s in recording
+                         if ch in (s.username.lower(), s.url.lower(), s.key)])
+        for s in targets:
+            print(f'⏹ parando {s.username} (orden externa)…')
+            logbook.event(f'ORDEN: parar {s.username}')
+            await monitor.stop_recording(s)
+
+
+async def _status_loop(monitor: Monitor, stop: asyncio.Event) -> None:
+    """Publish status.json, pick up orders from other terminals, print progress."""
+    last_set = None
+    ticks = 0
+    while not stop.is_set():
+        await _apply_commands(monitor)
+        status_mod.write(monitor)
+        cur = tuple(sorted(monitor.recordings))
+        if cur != last_set:
+            if cur:
+                print(_live_line(monitor))
+            elif last_set:
+                print('· ya no hay grabaciones en curso')
+            last_set = cur
+        elif cur and ticks % 15 == 0:      # otherwise a progress line every ~30s
+            print(_live_line(monitor))
+        ticks += 1
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=2)
+
+
+async def _run() -> None:
+    cfg, monitor = _build()
+    logbook.enable_console()
+    print(f'RecordBate (CLI) · {len(monitor.streamers)} canales · '
+          f'destino: {cfg.recordings_dir}')
+    print(f'Comprobando cada {cfg.poll_seconds}s · máx {cfg.max_concurrent} a la vez · '
+          'Ctrl+C para parar (finaliza las grabaciones en curso).')
+    logbook.event('CLI: arrancado')
+    status_mod.drain_commands()   # anything queued before we started is stale
+    await monitor.start()
+    await monitor.library.scan()
+
+    stop = asyncio.Event()
+    _install_signal_handlers(stop, asyncio.get_running_loop())
+    status_task = asyncio.create_task(_status_loop(monitor, stop))
+    try:
+        await stop.wait()
+    finally:
+        status_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await status_task
+        print('\nParando… finalizando grabaciones en curso (no cierres a la fuerza)…')
+        await monitor.shutdown()
+        status_mod.write(monitor)
+        logbook.event('CLI: detenido')
+        print('Listo.')
+
+
+def cmd_run(_args: argparse.Namespace) -> int:
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass   # backstop for when the signal handler could not be installed
+    return 0
+
+
+def cmd_dashboard(_args: argparse.Namespace) -> int:
+    from . import tui   # deferred: rich is only needed for the dashboard
+    try:
+        asyncio.run(tui.run_dashboard())
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    # force UTF-8 out: printing '▶' or '●' blows up on cp1252 when the output is
+    # redirected to a file or a service. errors='replace' means it can never crash.
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(Exception):
+            stream.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
+
+    parser = argparse.ArgumentParser(
+        prog='recordbate',
+        description='RecordBate headless (sin GUI): grabar y gestionar canales')
+    sub = parser.add_subparsers(dest='cmd', required=True)
+    sub.add_parser('run', help='vigila y graba en bucle (daemon, sin interfaz)')
+    sub.add_parser('dashboard', help='panel interactivo en vivo (controlar con teclas)')
+    p_add = sub.add_parser('add', help='añade un canal por URL')
+    p_add.add_argument('url')
+    p_rm = sub.add_parser('remove', help='quita un canal (por usuario o URL)')
+    p_rm.add_argument('channel')
+    p_auto = sub.add_parser('auto', help='activa/desactiva auto-grabar un canal')
+    p_auto.add_argument('channel')
+    p_auto.add_argument('state', choices=['on', 'off'])
+    p_stop = sub.add_parser('stop', help="para una grabación en curso (o 'all')")
+    p_stop.add_argument('channel', help="usuario/URL, o 'all' para todas")
+    p_off = sub.add_parser('offset', help='ver/ajustar el desfase de audio en ms')
+    p_off.add_argument('ms', nargs='?', type=int,
+                       help='ms; adelantado→positivo, atrasado→negativo')
+    sub.add_parser('list', help='lista los canales configurados')
+    sub.add_parser('status', help='comprueba quién está en vivo ahora')
+    sub.add_parser('now', help='muestra lo que se está grabando ahora mismo')
+
+    args = parser.parse_args(argv)
+    return {
+        'run': cmd_run,
+        'dashboard': cmd_dashboard,
+        'add': cmd_add,
+        'remove': cmd_remove,
+        'auto': cmd_auto,
+        'list': cmd_list,
+        'status': cmd_status,
+        'now': cmd_now,
+        'stop': cmd_stop,
+        'offset': cmd_offset,
+    }[args.cmd](args)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

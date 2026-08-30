@@ -1,0 +1,8 @@
+nicegui[native]>=3,<4
+yt-dlp
+streamlink
+httpx
+send2trash
+pystray
+pillow
+rich
