@@ -13,7 +13,7 @@ from . import tools
 from .models import STATUS_LABELS, Status, Streamer
 from .monitor import Monitor
 from .platforms import PLATFORM_COLORS
-from .ui_common import copy_to_clipboard, notify, open_log_file, refresh
+from .ui_common import copy_to_clipboard, live_preview, notify, open_log_file, refresh
 
 # rows sort by usefulness: recording first, then live, then the rest
 _ORDER = {Status.RECORDING: 0, Status.ONLINE: 1, Status.UNKNOWN: 2, Status.OFFLINE: 3}
@@ -44,7 +44,7 @@ def build(monitor: Monitor):
                 ui.icon('videocam_off', size='xl').classes('text-gray-600')
                 ui.label('Añade tu primer canal pegando su URL arriba').classes('text-gray-500')
             return
-        with ui.element('div').classes('w-full grid gap-2').style(_GRID_STYLE):
+        with ui.element('div').classes('w-full grid gap-2 items-start').style(_GRID_STYLE):
             for s in ordered_streamers():
                 _streamer_tile(monitor, s, streamer_table)
 
@@ -227,6 +227,8 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
                          '!text-gray-100 truncate grow min-w-0')
             ui.badge(status_label).props(f'color={status_color}') \
                 .classes('whitespace-nowrap flex-none')
+        if rec:
+            refresh_frame = live_preview(rec, extra_classes='rounded-lg')
         with ui.element('div').classes('w-full min-h-[1rem]'):
             if rec:
                 live = ui.label().classes('text-xs font-mono text-red-400 truncate w-full')
@@ -234,6 +236,7 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
                 def update_live(rec=rec, live=live) -> None:
                     live.set_text(f'⏺ {tools.human_duration(rec.elapsed)} · '
                                   f'{tools.human_size(rec.size)} · {rec.state}')
+                    refresh_frame()
 
                 update_live()
                 ui.timer(1.0, update_live)

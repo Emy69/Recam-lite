@@ -7,7 +7,7 @@ from nicegui import ui
 
 from . import tools
 from .library import Library, LibraryItem
-from .ui_common import notify
+from .ui_common import live_preview, notify
 
 _SORTS = {
     'recent': 'Más recientes',
@@ -297,28 +297,14 @@ def _recording_tile(rec) -> None:
     """A capture in flight, with a live preview frame that refreshes as it runs."""
     with ui.card().tight().classes('w-full outline outline-1 outline-red-800/60') \
             .props('flat bordered'):
-        with ui.element('div').classes('relative w-full h-28 bg-red-950/40 '
-                                       'flex items-center justify-center overflow-hidden'):
-            image = ui.image('').classes('w-full h-full object-cover')
-            image.set_visibility(False)
-            placeholder = ui.icon('fiber_manual_record', size='md').classes('text-red-500')
-            ui.label('● REC').classes('absolute top-1 left-1 text-[10px] font-medium '
-                                      'bg-red-600/90 px-1.5 py-0.5 rounded z-10')
+        refresh_frame = live_preview(rec)
         with ui.column().classes('p-2 pt-1.5 w-full gap-0'):
             live = ui.label().classes('text-xs text-red-400 font-mono truncate w-full')
-            seen = {'mtime': 0}
 
             def update(rec=rec) -> None:
                 live.set_text(f'● {tools.human_duration(rec.elapsed)} · '
                               f'{tools.human_size(rec.size)}')
-                thumb = getattr(rec, 'live_thumb', None)
-                if thumb and thumb[1] != seen['mtime']:
-                    seen['mtime'] = thumb[1]
-                    # the mtime doubles as a cache buster for each new frame
-                    image.set_source('/media/' + urllib.parse.quote(thumb[0])
-                                     + f'?v={thumb[1]}')
-                    image.set_visibility(True)
-                    placeholder.set_visibility(False)
+                refresh_frame()
 
             update()
             ui.timer(2.0, update)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import urllib.parse
 
 from nicegui import ui
 
@@ -34,6 +35,35 @@ def copy_to_clipboard(text: str, message: str = 'Copiado al portapapeles') -> No
         'a.focus();a.select();try{document.execCommand("copy");}catch(e){}'
         'document.body.removeChild(a);})();')
     notify(message, type='positive')
+
+
+def live_preview(rec, extra_classes: str = ''):
+    """Image area showing a running capture's live preview frame.
+
+    Returns a refresh callable meant to run on the caller's timer: it swaps the
+    frame in place whenever the recorder wrote a new one, using the file mtime
+    as a cache buster (.thumbs lives under the recordings root, so the /media
+    route serves it).
+    """
+    with ui.element('div').classes('relative w-full h-28 bg-red-950/40 flex '
+                                   'items-center justify-center overflow-hidden '
+                                   + extra_classes):
+        image = ui.image('').classes('w-full h-full object-cover')
+        image.set_visibility(False)
+        placeholder = ui.icon('fiber_manual_record', size='md').classes('text-red-500')
+        ui.label('● REC').classes('absolute top-1 left-1 text-[10px] font-medium '
+                                  'bg-red-600/90 px-1.5 py-0.5 rounded z-10')
+    seen = {'mtime': 0}
+
+    def refresh_frame() -> None:
+        thumb = getattr(rec, 'live_thumb', None)
+        if thumb and thumb[1] != seen['mtime']:
+            seen['mtime'] = thumb[1]
+            image.set_source('/media/' + urllib.parse.quote(thumb[0]) + f'?v={thumb[1]}')
+            image.set_visibility(True)
+            placeholder.set_visibility(False)
+
+    return refresh_frame
 
 
 def open_log_file() -> None:
