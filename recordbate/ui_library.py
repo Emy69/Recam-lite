@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import urllib.parse
-from datetime import date, datetime, timedelta
+from datetime import datetime
 
 from nicegui import ui
 
@@ -57,16 +57,6 @@ _PLAYER_JS = '''
     });
 })();
 '''
-
-
-def _day_bucket(ts: float) -> str:
-    d = datetime.fromtimestamp(ts).date()
-    today = date.today()
-    if d == today:
-        return 'Hoy'
-    if d == today - timedelta(days=1):
-        return 'Ayer'
-    return d.strftime('%d/%m/%Y')
 
 
 def build(library: Library, monitor=None):
@@ -211,29 +201,44 @@ def build(library: Library, monitor=None):
                     .classes('text-gray-500')
             return
 
-        with ui.column().classes('w-full gap-0'):
-            if active:
-                _section_header('Grabando ahora')
-                for rec in active:
-                    _recording_row(rec)
-            if state['sort'] in ('recent', 'oldest'):
-                groups: list[tuple[str, list[LibraryItem]]] = []
-                for item in items:
-                    bucket = _day_bucket(item.mtime)
-                    if not groups or groups[-1][0] != bucket:
-                        groups.append((bucket, []))
-                    groups[-1][1].append(item)
-                for bucket, group in groups:
-                    _section_header(f'{bucket} · {len(group)} · '
-                                    f'{tools.human_size(sum(i.size for i in group))}')
-                    for item in group:
-                        _video_row(library, item, rescan, play_item,
-                                   state['select'], item.rel in selected, toggle_item)
-            else:
-                ui.element('div').classes('h-2')
-                for item in items:
-                    _video_row(library, item, rescan, play_item,
-                               state['select'], item.rel in selected, toggle_item)
+        # one collapsible section per profile; recordings in flight lead their own
+        # profile, and profiles with something recording float to the top
+        order: list[str] = []
+        groups: dict[str, dict] = {}
+
+        def slot(name: str) -> dict:
+            if name not in groups:
+                groups[name] = {'recs': [], 'items': []}
+                order.append(name)
+            return groups[name]
+
+        for rec in active:
+            slot(rec.streamer.username)['recs'].append(rec)
+        for item in items:
+            slot(item.streamer or 'Sin carpeta')['items'].append(item)
+
+        with ui.column().classes('w-full gap-2 mt-1'):
+            for name in order:
+                group = groups[name]
+                vids = group['items']
+                head_parts = [name]
+                if group['recs']:
+                    head_parts[0] = f'⏺ {name}'
+                if vids:
+                    head_parts.append(f'{len(vids)} vídeo{"s" if len(vids) != 1 else ""}')
+                    head_parts.append(tools.human_size(sum(i.size for i in vids)))
+                else:
+                    head_parts.append('grabando ahora')
+                with ui.expansion(' · '.join(head_parts), icon='person', value=True) \
+                        .classes('w-full rounded-xl border border-white/5 bg-[#131a22]') \
+                        .props('dense header-class="text-sm font-medium"'):
+                    with ui.column().classes('w-full gap-0 pb-1'):
+                        for rec in group['recs']:
+                            _recording_row(rec)
+                        for item in vids:
+                            _video_row(library, item, rescan, play_item,
+                                       state['select'], item.rel in selected,
+                                       toggle_item)
 
     async def rescan() -> None:
         await library.scan()
@@ -284,10 +289,6 @@ def build(library: Library, monitor=None):
         listing()
 
     return rescan
-
-
-def _section_header(text: str) -> None:
-    ui.label(text).classes('text-xs uppercase tracking-wider text-gray-500 mt-4 mb-1 px-2')
 
 
 def _recording_row(rec) -> None:
@@ -399,8 +400,8 @@ def _video_row(library: Library, item: LibraryItem, rescan, play_item,
         info = ui.column().classes('gap-0 grow min-w-0 cursor-pointer')
         with info:
             ui.label(item.path.stem).classes('text-sm font-medium truncate w-full')
-            sub = ' · '.join(filter(None, [item.streamer, tools.human_ago(item.mtime)]))
-            ui.label(sub).classes('text-xs text-gray-500 truncate w-full').tooltip(exact_date)
+            ui.label(tools.human_ago(item.mtime)) \
+                .classes('text-xs text-gray-500 truncate w-full').tooltip(exact_date)
         info.on('click', primary)
         ui.label(tools.human_size(item.size)).classes(
             'text-xs text-gray-500 whitespace-nowrap')
