@@ -148,18 +148,19 @@ def human_duration(seconds: float | None) -> str:
 
 def human_ago(ts: float) -> str:
     """Relative time for the UI; falls back to a plain date past a week."""
+    from .i18n import t
     delta = max(0.0, time.time() - ts)
     if delta < 60:
-        return 'ahora mismo'
+        return t('just now', 'ahora mismo')
     if delta < 3600:
-        return f'hace {int(delta // 60)} min'
+        return t('{} min ago', 'hace {} min').format(int(delta // 60))
     if delta < 86400:
-        return f'hace {int(delta // 3600)} h'
+        return t('{} h ago', 'hace {} h').format(int(delta // 3600))
     days = int(delta // 86400)
     if days == 1:
-        return 'ayer'
+        return t('yesterday', 'ayer')
     if days < 7:
-        return f'hace {days} días'
+        return t('{} days ago', 'hace {} días').format(days)
     return datetime.fromtimestamp(ts).strftime('%d/%m/%Y')
 
 

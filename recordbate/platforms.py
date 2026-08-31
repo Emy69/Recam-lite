@@ -9,6 +9,7 @@ from pathlib import Path
 
 import httpx
 
+from .i18n import t
 from .models import Status
 
 REQUEST_HEADERS = {
@@ -187,22 +188,25 @@ async def resolve_stripchat_m3u8(username: str, quality: str) -> str:
                                  follow_redirects=True) as client:
         r = await client.get(f'https://stripchat.com/api/front/v2/users/username/{username}')
         if r.status_code != 200:
-            raise StreamNotAvailable(f'stripchat no responde ({r.status_code})')
+            raise StreamNotAvailable(t('stripchat is not responding ({})',
+                                       'stripchat no responde ({})').format(r.status_code))
         item = (r.json() or {}).get('item') or {}
         if not item.get('id'):
-            raise StreamNotAvailable('modelo no encontrado en stripchat')
+            raise StreamNotAvailable(t('model not found on stripchat',
+                                       'modelo no encontrado en stripchat'))
         if not item.get('isOnline'):
-            raise StreamNotAvailable('no está emitiendo ahora')
+            raise StreamNotAvailable(t('not streaming right now', 'no está emitiendo ahora'))
         master_url = STRIPCHAT_HLS.format(id=item['id'])
         r2 = await client.get(master_url)
         if r2.status_code != 200 or '#EXTM3U' not in r2.text:
-            raise StreamNotAvailable('emisión no pública ahora mismo (¿show privado?)')
+            raise StreamNotAvailable(t('stream is not public right now (private show?)',
+                                       'emisión no pública ahora mismo (¿show privado?)'))
         if '#EXT-X-MOUFLON' in r2.text:
             # the playlist advertises decoy segments (media.mp4, always a 404) and hides
             # the real encrypted ones behind these tags. Without the key ffmpeg would
             # happily download nothing but 404s, so say so instead of recording garbage.
-            raise StreamEncrypted('emisión cifrada por Stripchat (Mouflon): no grabable '
-                                  'sin clave de descifrado')
+            raise StreamEncrypted(t('stream encrypted by Stripchat (Mouflon): not recordable without the decryption key',
+                                    'emisión cifrada por Stripchat (Mouflon): no grabable sin clave de descifrado'))
         variants: list[tuple[int, int, str]] = []
         info = None
         for line in r2.text.splitlines():
@@ -228,8 +232,9 @@ async def resolve_chaturbate_urls(username: str, quality: str) -> list[str]:
     """Fallback resolver: [video, audio] URLs of the public stream, via yt-dlp -g."""
     from . import tools
     if not await _CB_THROTTLE.slot(max_wait=10):
-        raise RateLimited('chaturbate está limitando las peticiones (429); '
-                          f'se reintenta en ~{int(_CB_THROTTLE.hold_remaining()) + 1}s')
+        raise RateLimited(t('chaturbate is rate limiting (429); retrying in ~{}s',
+                            'chaturbate está limitando las peticiones (429); se reintenta en ~{}s')
+                          .format(int(_CB_THROTTLE.hold_remaining()) + 1))
     fmt = _YTDLP_FORMAT.get(quality, 'bv*+ba/b')
     proc = await asyncio.create_subprocess_exec(
         sys.executable, '-m', 'yt_dlp', '-f', fmt, '-g', '--no-playlist',
@@ -241,15 +246,17 @@ async def resolve_chaturbate_urls(username: str, quality: str) -> list[str]:
     except asyncio.TimeoutError:
         with contextlib.suppress(ProcessLookupError, OSError):
             proc.kill()
-        raise StreamNotAvailable('chaturbate no respondió a tiempo')
+        raise StreamNotAvailable(t('chaturbate did not answer in time',
+                                   'chaturbate no respondió a tiempo'))
     urls = [u for u in out.decode('utf-8', 'replace').splitlines() if u.startswith('http')]
     if not urls:
         msg = err.decode('utf-8', 'replace').lower()
         if 'offline' in msg:
-            raise StreamNotAvailable('no está emitiendo ahora')
+            raise StreamNotAvailable(t('not streaming right now', 'no está emitiendo ahora'))
         if 'private' in msg:
-            raise StreamNotAvailable('en show privado')
-        raise StreamNotAvailable('chaturbate: no se pudo resolver el directo')
+            raise StreamNotAvailable(t('in a private show', 'en show privado'))
+        raise StreamNotAvailable(t('chaturbate: could not resolve the stream',
+                                   'chaturbate: no se pudo resolver el directo'))
     return urls
 
 
@@ -266,30 +273,35 @@ async def resolve_chaturbate_master(username: str, quality: str) -> str:
     of audio lead with two inputs, frame-exact alignment with one).
     """
     if not await _CB_THROTTLE.slot(max_wait=10):
-        raise RateLimited('chaturbate está limitando las peticiones (429); '
-                          f'se reintenta en ~{int(_CB_THROTTLE.hold_remaining()) + 1}s')
+        raise RateLimited(t('chaturbate is rate limiting (429); retrying in ~{}s',
+                            'chaturbate está limitando las peticiones (429); se reintenta en ~{}s')
+                          .format(int(_CB_THROTTLE.hold_remaining()) + 1))
     async with httpx.AsyncClient(headers=REQUEST_HEADERS, timeout=20,
                                  follow_redirects=True) as client:
         r = await client.get(f'https://chaturbate.com/api/chatvideocontext/{username}/')
         if r.status_code == 429:
             _CB_THROTTLE.report_429()
-            raise RateLimited('chaturbate devolvió 429 (demasiadas peticiones); '
-                              'pausa automática y reintento')
+            raise RateLimited(t('chaturbate answered 429 (too many requests); backing off and retrying',
+                                'chaturbate devolvió 429 (demasiadas peticiones); pausa automática y reintento'))
         if r.status_code != 200:
-            raise StreamNotAvailable(f'chaturbate no responde ({r.status_code})')
+            raise StreamNotAvailable(t('chaturbate is not responding ({})',
+                                       'chaturbate no responde ({})').format(r.status_code))
         _CB_THROTTLE.report_ok()
         data = r.json() or {}
         status = data.get('room_status')
         if status in ('offline', 'away'):
-            raise StreamNotAvailable('no está emitiendo ahora')
+            raise StreamNotAvailable(t('not streaming right now', 'no está emitiendo ahora'))
         if status and status != 'public':
-            raise StreamNotAvailable(f'sin emisión pública (estado: {status})')
+            raise StreamNotAvailable(t('no public stream (status: {})',
+                                       'sin emisión pública (estado: {})').format(status))
         master_url = data.get('hls_source')
         if not master_url:
-            raise StreamNotAvailable('chaturbate no dio la URL del directo')
+            raise StreamNotAvailable(t('chaturbate did not hand out the stream URL',
+                                       'chaturbate no dio la URL del directo'))
         r2 = await client.get(master_url)
         if r2.status_code != 200 or '#EXTM3U' not in r2.text:
-            raise StreamNotAvailable('el playlist del directo no está disponible')
+            raise StreamNotAvailable(t('the stream playlist is not available',
+                                       'el playlist del directo no está disponible'))
 
     origin = re.match(r'(https?://[^/]+)', master_url).group(1)
     base_dir = master_url.rsplit('/', 1)[0]
@@ -324,7 +336,8 @@ async def resolve_chaturbate_master(username: str, quality: str) -> str:
                              info, absolutize(line)))
             info = None
     if not variants:
-        raise StreamNotAvailable('el playlist del directo no lista calidades')
+        raise StreamNotAvailable(t('the stream playlist lists no qualities',
+                                   'el playlist del directo no lista calidades'))
 
     cap = _QUALITY_CAP.get(quality, 100_000)
     eligible = [v for v in variants if v[0] <= cap] or variants
@@ -354,7 +367,7 @@ async def build_record_cmd(platform: str, username: str, quality: str,
 
     ffmpeg = tools.ffmpeg_path()
     if not ffmpeg:
-        raise StreamNotAvailable('ffmpeg no encontrado')
+        raise StreamNotAvailable(t('ffmpeg not found', 'ffmpeg no encontrado'))
 
     if platform == 'stripchat':
         m3u8 = await resolve_stripchat_m3u8(username, quality)

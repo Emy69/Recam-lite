@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import config as config_mod
 from . import logbook, platforms, tools
+from .i18n import t
 from .models import Status, Streamer
 
 MIN_VALID_BYTES = 200_000          # below this there was no real stream to keep
@@ -35,13 +36,13 @@ class Recording:
         stem = config_mod.build_output_stem(cfg, streamer)
         self.ts_path = (cfg.recordings_path / stem).with_suffix('.ts')
         self.mp4_path = self.ts_path.with_suffix('.mp4')
-        self.state = 'iniciando'                # iniciando | grabando | deteniendo | procesando
+        self.state = 'starting'                 # starting | recording | stopping | processing
         self.started_at = time.time()
         self.recording_since: float | None = None
         self.rec_file: Path | None = None
         self.size = 0
         self.manual_stop = False
-        self.stop_reason = ''                   # '', 'usuario', 'app', 'timeout'
+        self.stop_reason = ''                   # '', 'user', 'app', 'timeout'
         self.cmd = ''
         self.log: deque[str] = deque(maxlen=200)
         self.proc: asyncio.subprocess.Process | None = None
@@ -119,7 +120,7 @@ class Recording:
         cmd = await platforms.build_record_cmd(
             self.streamer.platform, self.streamer.username, self.cfg.quality, self.ts_path)
         self.cmd = ' '.join(cmd)
-        logbook.event(f'INICIO  {self.streamer.username} ({self.streamer.platform})  →  {self.cmd}')
+        logbook.event(f'START  {self.streamer.username} ({self.streamer.platform})  →  {self.cmd}')
         self.proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.DEVNULL,
@@ -159,17 +160,19 @@ class Recording:
                 self.rec_file = found
                 with contextlib.suppress(OSError):
                     self.size = found.stat().st_size
-            if self.state == 'grabando' \
+            if self.state == 'recording' \
                     and time.time() - self._last_snapshot >= SNAPSHOT_EVERY:
                 self._last_snapshot = time.time()
                 await self._snapshot()
-            if self.state == 'iniciando':
+            if self.state == 'starting':
                 if self.size >= MIN_VALID_BYTES:
-                    self.state = 'grabando'
+                    self.state = 'recording'
                     self.recording_since = time.time()
                     self.streamer.status = Status.RECORDING
                 elif time.time() - self.started_at > START_TIMEOUT:
-                    self.log.append(f'Sin datos en {START_TIMEOUT}s; se cancela el intento.')
+                    self.log.append(t('No data in {}s; giving up on this attempt.',
+                                      'Sin datos en {}s; se cancela el intento.')
+                                    .format(START_TIMEOUT))
                     self.stop_reason = 'timeout'
                     await self._terminate()
                     break
@@ -183,8 +186,8 @@ class Recording:
     async def stop(self) -> None:
         self.manual_stop = True
         if not self.stop_reason:
-            self.stop_reason = 'usuario'
-        self.state = 'deteniendo'
+            self.stop_reason = 'user'
+        self.state = 'stopping'
         await self._terminate()
 
     async def _terminate(self) -> None:
@@ -204,7 +207,7 @@ class Recording:
                 self.proc.kill()
 
     async def _finalize(self) -> None:
-        self.state = 'procesando'
+        self.state = 'processing'
         # the chaturbate capture leaves a small helper playlist next to the output
         with contextlib.suppress(OSError):
             self.ts_path.with_suffix('.m3u8').unlink(missing_ok=True)
@@ -217,14 +220,16 @@ class Recording:
         s.last_log = list(self.log)
 
         exit_code = self.proc.returncode if self.proc else None
-        if self.stop_reason == 'usuario':
-            exit_label = 'detenido a mano'
+        if self.stop_reason == 'user':
+            exit_label = t('stopped by hand', 'detenido a mano')
         elif self.stop_reason == 'app':
-            exit_label = 'app cerrada'
+            exit_label = t('app closed', 'app cerrada')
         elif self.stop_reason == 'timeout':
-            exit_label = f'sin datos de inicio (grabador salió con código {exit_code})'
+            exit_label = t('no data at start (recorder exited with code {})',
+                           'sin datos de inicio (grabador salió con código {})').format(exit_code)
         else:
-            exit_label = f'el grabador terminó solo (código {exit_code})'
+            exit_label = t('the recorder ended on its own (code {})',
+                           'el grabador terminó solo (código {})').format(exit_code)
 
         if self.size < MIN_VALID_BYTES:
             # nothing worth keeping; clear the scraps so the library stays clean
@@ -240,17 +245,20 @@ class Recording:
                 if self.ts_path.parent != self.cfg.recordings_path and \
                         not any(self.ts_path.parent.iterdir()):
                     self.ts_path.parent.rmdir()
-            if self.stop_reason == 'usuario':
-                hint = 'lo detuviste antes de que grabara nada útil'
+            if self.stop_reason == 'user':
+                hint = t('you stopped it before anything useful was captured',
+                         'lo detuviste antes de que grabara nada útil')
             elif self.stop_reason == 'timeout':
-                hint = 'no llegó vídeo: el directo no estaba público o no arrancó'
+                hint = t('no video arrived: the stream was not public or never started',
+                         'no llegó vídeo: el directo no estaba público o no arrancó')
             elif self.stop_reason == 'app':
-                hint = 'se cerró la app durante el arranque'
+                hint = t('the app closed during startup', 'se cerró la app durante el arranque')
             else:
-                hint = ('cerró antes de grabar nada útil (¿terminó el directo, se cortó, '
-                        'o lo rechazó la plataforma?)')
-            reason = (f'NO guardado — solo {tools.human_size(self.size)} '
-                      f'(mínimo {tools.human_size(MIN_VALID_BYTES)}): {hint}')
+                hint = t('it ended before capturing anything useful (stream over, dropped, or refused by the site?)',
+                         'cerró antes de grabar nada útil (¿terminó el directo, se cortó, o lo rechazó la plataforma?)')
+            reason = t('NOT saved — only {} (minimum {}): {}',
+                       'NO guardado — solo {} (mínimo {}): {}').format(
+                tools.human_size(self.size), tools.human_size(MIN_VALID_BYTES), hint)
             s.status = Status.UNKNOWN if self.manual_stop else Status.OFFLINE
             s.last_error = reason
             s.last_result = ''
@@ -263,8 +271,8 @@ class Recording:
             final_size = 0
             with contextlib.suppress(OSError):
                 final_size = final.stat().st_size
-            reason = (f'guardado {final.name} · {tools.human_duration(duration)} · '
-                      f'{tools.human_size(final_size)}')
+            reason = t('saved {} · {} · {}', 'guardado {} · {} · {}').format(
+                final.name, tools.human_duration(duration), tools.human_size(final_size))
             saved = True
             s.last_result = reason
             s.last_error = ''
@@ -277,12 +285,12 @@ class Recording:
         s.last_reason = reason
         tail = list(self.log)[-25:]
         logbook.block(
-            f'{s.username} ({s.platform}) — {"GUARDADO" if saved else "SIN GUARDAR"}',
-            [f'comando: {self.cmd}',
-             f'salida:  {exit_label}',
-             f'motivo:  {reason}',
-             'últimas líneas del grabador:',
-             *(tail or ['(el grabador no imprimió nada)'])])
+            f'{s.username} ({s.platform}) — {"SAVED" if saved else "NOT SAVED"}',
+            [f'command: {self.cmd}',
+             f'exit:    {exit_label}',
+             f'reason:  {reason}',
+             'last recorder lines:',
+             *(tail or ['(the recorder printed nothing)'])])
         self.on_finished(self, saved)
 
 

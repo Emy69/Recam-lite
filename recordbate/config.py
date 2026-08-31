@@ -29,6 +29,7 @@ class Config:
     # delays the audio, negative pulls it forward. Normally 0: capture keeps the
     # source timeline, so recordings come out aligned on their own.
     audio_offset_ms: int = 0
+    language: str = 'en'           # 'en' | 'es'
 
     @property
     def recordings_path(self) -> Path:

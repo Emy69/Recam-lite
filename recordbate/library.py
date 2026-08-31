@@ -12,6 +12,7 @@ from send2trash import send2trash
 
 from . import config as config_mod
 from . import recorder
+from .i18n import t
 
 CACHE_FILE = config_mod.DATA_DIR / 'library_cache.json'
 VIDEO_EXTS = {'.mp4', '.ts', '.mkv', '.m4v'}
@@ -156,12 +157,13 @@ class Library:
     def rename(self, item: LibraryItem, new_stem: str) -> Path:
         new_stem = config_mod.sanitize_segment(new_stem)
         if not new_stem:
-            raise ValueError('El nombre no puede quedar vacío')
+            raise ValueError(t('The name cannot be empty', 'El nombre no puede quedar vacío'))
         target = item.path.with_name(new_stem + item.path.suffix)
         if target == item.path:
             return target
         if target.exists():
-            raise ValueError('Ya existe un archivo con ese nombre')
+            raise ValueError(t('A file with that name already exists',
+                               'Ya existe un archivo con ese nombre'))
         old_thumb = recorder.thumb_path_for(item.path)
         item.path.rename(target)
         if old_thumb.exists():

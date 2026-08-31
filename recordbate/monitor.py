@@ -10,6 +10,7 @@ import httpx
 
 from . import config as config_mod
 from . import logbook, platforms
+from .i18n import t
 from .library import Library
 from .models import Status, Streamer
 from .recorder import Recording
@@ -52,7 +53,7 @@ class Monitor:
         for rec in recs:
             rec.manual_stop = True
             rec.stop_reason = 'app'
-            logbook.event(f'APP CERRÁNDOSE: finalizando grabación de {rec.streamer.username}')
+            logbook.event(f'APP CLOSING: finalizing capture of {rec.streamer.username}')
             await rec._terminate()
         # let each one finish its remux, so quitting leaves playable MP4s behind
         if recs:
@@ -69,7 +70,7 @@ class Monitor:
                     await self._cycle()
                 except Exception as exc:
                     # a bad cycle must never kill the loop, but it should be traceable
-                    logbook.event(f'ERROR en el ciclo de vigilancia: {exc!r}')
+                    logbook.event(f'ERROR in the watch cycle: {exc!r}')
             await asyncio.sleep(max(15, int(self.cfg.poll_seconds)))
 
     async def _cycle(self) -> None:
@@ -114,35 +115,44 @@ class Monitor:
         try:
             await rec.start()
         except platforms.StreamEncrypted as exc:
-            self._drop(streamer, rec, 'no se lanzó (emisión cifrada)', str(exc),
+            self._drop(streamer, rec, t('not launched (encrypted stream)',
+                                        'no se lanzó (emisión cifrada)'), str(exc),
                        ENCRYPTED_COOLDOWN)
             streamer.status = Status.ONLINE   # it is live, we just cannot read it
-            self._event('fail', f'{streamer.username}: emisión cifrada, no grabable')
-            logbook.event(f'NO GRABABLE  {streamer.username} ({streamer.platform}): {exc}')
+            self._event('fail', t('{}: encrypted stream, not recordable',
+                                  '{}: emisión cifrada, no grabable').format(streamer.username))
+            logbook.event(f'NOT RECORDABLE  {streamer.username} ({streamer.platform}): {exc}')
             return None
         except platforms.RateLimited as exc:
             # wait the hold out plus some jitter, so 18 channels don't all knock
             # again in the same second when it lifts
             cooldown = max(60.0, platforms.rate_limit_remaining(streamer.platform)) \
                 + random.uniform(0, 30)
-            self._drop(streamer, rec, 'no se lanzó (límite de peticiones 429)',
+            self._drop(streamer, rec, t('not launched (rate limited, 429)',
+                                        'no se lanzó (límite de peticiones 429)'),
                        str(exc), cooldown)
-            self._event('fail', f'{streamer.platform}: límite de peticiones (429), '
-                                'pausa automática')
-            logbook.event(f'LÍMITE 429  {streamer.username} ({streamer.platform}): {exc}')
+            self._event('fail', t('{}: rate limited (429), backing off automatically',
+                                  '{}: límite de peticiones (429), pausa automática')
+                        .format(streamer.platform))
+            logbook.event(f'RATE LIMIT 429  {streamer.username} ({streamer.platform}): {exc}')
             return None
         except platforms.StreamNotAvailable as exc:
-            self._drop(streamer, rec, 'no se lanzó (sin emisión pública)', str(exc), 30)
-            logbook.event(f'NO DISPONIBLE  {streamer.username} ({streamer.platform}): {exc}')
+            self._drop(streamer, rec, t('not launched (no public stream)',
+                                        'no se lanzó (sin emisión pública)'), str(exc), 30)
+            logbook.event(f'NOT AVAILABLE  {streamer.username} ({streamer.platform}): {exc}')
             return None
         except Exception as exc:
-            self._drop(streamer, rec, 'error al lanzar',
-                       f'No se pudo lanzar la grabación: {exc}', self.cfg.poll_seconds)
-            self._event('fail', f'{streamer.username}: error al lanzar la grabación')
-            logbook.event(f'ERROR AL LANZAR  {streamer.username} '
+            self._drop(streamer, rec, t('failed to launch', 'error al lanzar'),
+                       t('Could not launch the capture: {}',
+                         'No se pudo lanzar la grabación: {}').format(exc),
+                       self.cfg.poll_seconds)
+            self._event('fail', t('{}: failed to launch the capture',
+                                  '{}: error al lanzar la grabación').format(streamer.username))
+            logbook.event(f'LAUNCH ERROR  {streamer.username} '
                           f'({streamer.platform}): {exc!r}')
             return None
-        self._event('start', f'Grabando a {streamer.username} ({streamer.platform})')
+        self._event('start', t('Recording {} ({})', 'Grabando a {} ({})')
+                    .format(streamer.username, streamer.platform))
         self.library.bump()   # show the "recording" card right away
         return rec
 
@@ -171,13 +181,14 @@ class Monitor:
     def add_streamer(self, text: str) -> Streamer:
         detected = platforms.detect(text)
         if not detected:
-            raise ValueError('No reconozco esa URL. Vale un enlace de Twitch, Kick, '
-                             'Stripchat o Chaturbate.')
+            raise ValueError(t('URL not recognized. Twitch, Kick, Stripchat and Chaturbate links work.',
+                               'No reconozco esa URL. Vale un enlace de Twitch, Kick, Stripchat o Chaturbate.'))
         platform, username = detected
         streamer = Streamer(url=platforms.canonical_url(platform, username),
                             platform=platform, username=username)
         if any(s.key == streamer.key for s in self.streamers):
-            raise ValueError(f'{username} ({platform}) ya está en la lista.')
+            raise ValueError(t('{} ({}) is already on the list.',
+                               '{} ({}) ya está en la lista.').format(username, platform))
         self.streamers.append(streamer)
         config_mod.save_streamers(self.streamers)
         return streamer

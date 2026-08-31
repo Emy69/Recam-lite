@@ -10,12 +10,13 @@ from nicegui import ui
 
 from . import config as config_mod
 from . import tools
-from .models import STATUS_LABELS, Status, Streamer
+from .i18n import t
+from .models import Status, Streamer, state_label, status_label
 from .monitor import Monitor
 from .platforms import PLATFORM_COLORS
 from .ui_common import copy_to_clipboard, live_preview, notify, open_log_file, refresh
 
-# rows sort by usefulness: recording first, then live, then the rest
+# tiles sort by usefulness: recording first, then live, then the rest
 _ORDER = {Status.RECORDING: 0, Status.ONLINE: 1, Status.UNKNOWN: 2, Status.OFFLINE: 3}
 
 _EVENT_STYLE = {
@@ -42,7 +43,9 @@ def build(monitor: Monitor):
         if not monitor.streamers:
             with ui.card().classes('w-full items-center p-10').props('flat bordered'):
                 ui.icon('videocam_off', size='xl').classes('text-gray-600')
-                ui.label('Añade tu primer canal pegando su URL arriba').classes('text-gray-500')
+                ui.label(t('Add your first channel by pasting its URL above',
+                           'Añade tu primer canal pegando su URL arriba')) \
+                    .classes('text-gray-500')
             return
         with ui.element('div').classes('w-full grid gap-2 items-start').style(_GRID_STYLE):
             for s in ordered_streamers():
@@ -53,7 +56,7 @@ def build(monitor: Monitor):
         if not monitor.events:
             return
         with ui.card().classes('w-full gap-1 p-3').props('flat bordered'):
-            ui.label('Actividad reciente').classes('text-sm font-medium')
+            ui.label(t('Recent activity', 'Actividad reciente')).classes('text-sm font-medium')
             for ev in list(monitor.events)[-8:][::-1]:
                 icon, color = _EVENT_STYLE.get(ev['kind'], ('info', 'text-gray-500'))
                 with ui.row().classes('items-center gap-2 w-full flex-nowrap'):
@@ -66,7 +69,8 @@ def build(monitor: Monitor):
     with ui.column().classes('w-full max-w-5xl mx-auto gap-3'):
         with ui.row().classes('w-full items-center gap-2'):
             url_input = ui.input(
-                placeholder='Pega la URL del canal (Twitch, Kick, Stripchat, Chaturbate)…',
+                placeholder=t('Paste a channel URL (Twitch, Kick, Stripchat, Chaturbate)…',
+                              'Pega la URL del canal (Twitch, Kick, Stripchat, Chaturbate)…'),
             ).props('outlined dense clearable').classes('grow')
 
             def add() -> None:
@@ -79,30 +83,36 @@ def build(monitor: Monitor):
                     ui.notify(str(exc), type='warning')
                     return
                 url_input.value = ''
-                ui.notify(f'{s.username} ({s.platform}) añadido. '
-                          'Se comprueba en el próximo ciclo.', type='positive')
+                ui.notify(t('{} ({}) added. It gets checked on the next cycle.',
+                            '{} ({}) añadido. Se comprueba en el próximo ciclo.')
+                          .format(s.username, s.platform), type='positive')
                 streamer_table.refresh()
 
             url_input.on('keydown.enter', add)
-            ui.button('Añadir', icon='add', on_click=add).props('unelevated')
+            ui.button(t('Add', 'Añadir'), icon='add', on_click=add).props('unelevated')
 
         with ui.row().classes('w-full items-center gap-4'):
-            ui.switch('Vigilancia automática').bind_value(monitor, 'enabled') \
-                .tooltip('Apagada: no se comprueban canales ni se inician grabaciones nuevas')
+            ui.switch(t('Automatic monitoring', 'Vigilancia automática')) \
+                .bind_value(monitor, 'enabled') \
+                .tooltip(t('Off: no channel checks, no new recordings get started',
+                           'Apagada: no se comprueban canales ni se inician grabaciones nuevas'))
 
             async def check_all() -> None:
                 if not monitor.streamers:
                     return
-                notify(f'Comprobando {len(monitor.streamers)} canales…', type='info')
+                notify(t('Checking {} channels…', 'Comprobando {} canales…')
+                       .format(len(monitor.streamers)), type='info')
                 results = await asyncio.gather(
                     *(monitor.manual_check(s) for s in monitor.streamers),
                     return_exceptions=True)
                 live = sum(1 for r in results if r == Status.ONLINE)
-                notify(f'{live} en vivo de {len(monitor.streamers)}', type='positive')
+                notify(t('{} live out of {}', '{} en vivo de {}')
+                       .format(live, len(monitor.streamers)), type='positive')
                 refresh(streamer_table)
 
-            ui.button('Comprobar ahora', icon='radar', on_click=check_all) \
-                .props('flat dense no-caps').tooltip('Comprueba todos los canales ya')
+            ui.button(t('Check now', 'Comprobar ahora'), icon='radar', on_click=check_all) \
+                .props('flat dense no-caps') \
+                .tooltip(t('Check every channel right now', 'Comprueba todos los canales ya'))
             ui.space()
             summary = ui.label().classes('text-sm text-gray-500')
 
@@ -115,14 +125,15 @@ def build(monitor: Monitor):
         rec_count = len(monitor.recordings)
         live = sum(1 for s in monitor.streamers
                    if s.status in (Status.ONLINE, Status.RECORDING))
-        parts = [f'{len(monitor.streamers)} canales', f'{live} en vivo',
-                 f'{rec_count} grabando']
+        parts = [t('{} channels', '{} canales').format(len(monitor.streamers)),
+                 t('{} live', '{} en vivo').format(live),
+                 t('{} recording', '{} grabando').format(rec_count)]
         free = tools.disk_free(monitor.cfg.recordings_dir)
         if free is not None:
-            parts.append(f'{tools.human_size(free)} libres')
+            parts.append(t('{} free', '{} libres').format(tools.human_size(free)))
         summary.set_text(' · '.join(parts))
-        # rebuilding the rows throws away focus and open menus, so only do it when
-        # something a row actually shows has changed
+        # rebuilding the tiles throws away focus and open menus, so only do it when
+        # something a tile actually shows has changed
         signature = tuple(
             (s.key, s.status.value, s.auto_record, s.last_result, s.last_error,
              s.key in monitor.recordings,
@@ -139,39 +150,47 @@ def build(monitor: Monitor):
 
 def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
     rec = monitor.recordings.get(s.key)
-    status_label, status_color = STATUS_LABELS[s.status]
+    label, color = status_label(s.status)
 
     async def do_record() -> None:
         # notify before awaiting: start_recording resolves stream URLs and is slow
-        # enough for the table to refresh and take this row with it
-        notify(f'Intentando grabar a {s.username}… si no hay directo se cancela solo.',
-               type='info')
+        # enough for the grid to refresh and take this tile with it
+        notify(t('Trying to record {}… it cancels itself if nothing is live.',
+                 'Intentando grabar a {}… si no hay directo se cancela solo.')
+               .format(s.username), type='info')
         s.cooldown_until = 0
         await monitor.start_recording(s)
         refresh(streamer_table)
 
     async def do_stop() -> None:
-        notify('Deteniendo… el archivo se procesará en unos segundos. '
-               'La auto-grabación de este canal queda en pausa 10 minutos.', type='info')
+        notify(t('Stopping… the file gets processed shortly. '
+                 'Auto-record for this channel pauses for 10 minutes.',
+                 'Deteniendo… el archivo se procesará en unos segundos. '
+                 'La auto-grabación de este canal queda en pausa 10 minutos.'), type='info')
         await monitor.stop_recording(s)
         refresh(streamer_table)
 
     async def do_check() -> None:
         status = await monitor.manual_check(s)
-        notify(f'{s.username}: {STATUS_LABELS[status][0]}', type='info')
+        notify(f'{s.username}: {status_label(status)[0]}', type='info')
         refresh(streamer_table)
 
     async def do_remove() -> None:
         with ui.dialog() as confirm, ui.card():
-            ui.label(f'¿Quitar a {s.username} de la lista?')
-            ui.label('Las grabaciones ya guardadas no se tocan.') \
+            ui.label(t('Remove {} from the list?', '¿Quitar a {} de la lista?')
+                     .format(s.username))
+            ui.label(t('Saved recordings are not touched.',
+                       'Las grabaciones ya guardadas no se tocan.')) \
                 .classes('text-xs text-gray-500')
             with ui.row().classes('w-full justify-end gap-2'):
-                ui.button('Cancelar', on_click=lambda: confirm.submit(False)).props('flat')
-                ui.button('Quitar', color='red', on_click=lambda: confirm.submit(True))
+                ui.button(t('Cancel', 'Cancelar'),
+                          on_click=lambda: confirm.submit(False)).props('flat')
+                ui.button(t('Remove', 'Quitar'), color='red',
+                          on_click=lambda: confirm.submit(True))
         if await confirm:
             await monitor.remove_streamer(s)
-            notify(f'{s.username} eliminado de la lista', type='positive')
+            notify(t('{} removed from the list', '{} eliminado de la lista')
+                   .format(s.username), type='positive')
             refresh(streamer_table)
 
     def open_folder() -> None:
@@ -182,37 +201,43 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
 
     def show_log() -> None:
         live = monitor.recordings.get(s.key)   # re-read: it may have ended since paint
-        header = [f'Canal:   {s.username} ({s.platform})',
+        header = [t('Channel: {} ({})', 'Canal:   {} ({})').format(s.username, s.platform),
                   f'URL:     {s.url}',
-                  f'Estado:  {STATUS_LABELS[s.status][0]}']
+                  t('Status:  {}', 'Estado:  {}').format(status_label(s.status)[0])]
         if live:
-            header.append(f'Salida:  grabando ahora ({live.state})')
-            header.append(f'Comando: {live.cmd}')
+            header.append(t('Exit:    recording now ({})',
+                            'Salida:  grabando ahora ({})').format(state_label(live.state)))
+            header.append(t('Command: {}', 'Comando: {}').format(live.cmd))
             body_lines = list(live.log)
         else:
             if s.last_exit:
-                header.append(f'Salida:  {s.last_exit}')
+                header.append(t('Exit:    {}', 'Salida:  {}').format(s.last_exit))
             if s.last_reason or s.last_error:
-                header.append(f'Motivo:  {s.last_reason or s.last_error}')
+                header.append(t('Reason:  {}', 'Motivo:  {}')
+                              .format(s.last_reason or s.last_error))
             if s.last_cmd:
-                header.append(f'Comando: {s.last_cmd}')
+                header.append(t('Command: {}', 'Comando: {}').format(s.last_cmd))
             body_lines = s.last_log
-        text = ('\n'.join(header) + '\n\n--- salida del grabador ---\n'
-                + ('\n'.join(body_lines) or '(el grabador no imprimió nada)'))
+        text = ('\n'.join(header) + '\n\n--- '
+                + t('recorder output', 'salida del grabador') + ' ---\n'
+                + ('\n'.join(body_lines)
+                   or t('(the recorder printed nothing)', '(el grabador no imprimió nada)')))
         with ui.dialog() as d, ui.card().classes('w-[780px] max-w-full'):
-            ui.label(f'Registro · {s.username}').classes('font-medium')
+            ui.label(t('Log · {}', 'Registro · {}').format(s.username)).classes('font-medium')
             with ui.element('div').classes('w-full max-h-96 overflow-auto bg-black rounded p-2'):
                 ui.html(f'<pre style="white-space:pre-wrap;font-size:11px;margin:0;'
                         f'color:#e0e0e0">{html_mod.escape(text)}</pre>')
-            ui.label('Aquí está el comando exacto y el motivo por el que se cerró.') \
+            ui.label(t('The exact command and why it ended.',
+                       'Aquí está el comando exacto y el motivo por el que se cerró.')) \
                 .classes('text-xs text-gray-500')
             with ui.row().classes('w-full justify-end gap-2'):
-                ui.button('Abrir .log completo', icon='description',
+                ui.button(t('Open full .log', 'Abrir .log completo'), icon='description',
                           on_click=open_log_file).props('flat')
-                ui.button('Copiar', icon='content_copy',
-                          on_click=lambda: copy_to_clipboard(text, 'Registro copiado')) \
+                ui.button(t('Copy', 'Copiar'), icon='content_copy',
+                          on_click=lambda: copy_to_clipboard(
+                              text, t('Log copied', 'Registro copiado'))) \
                     .props('unelevated')
-                ui.button('Cerrar', on_click=d.close).props('flat')
+                ui.button(t('Close', 'Cerrar'), on_click=d.close).props('flat')
         d.open()
 
     border = ' outline outline-1 outline-red-800/60' if rec else ''
@@ -225,8 +250,7 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
             ui.link(s.username, s.url, new_tab=True) \
                 .classes('text-sm font-medium no-underline hover:underline '
                          '!text-gray-100 truncate grow min-w-0')
-            ui.badge(status_label).props(f'color={status_color}') \
-                .classes('whitespace-nowrap flex-none')
+            ui.badge(label).props(f'color={color}').classes('whitespace-nowrap flex-none')
         if rec:
             refresh_frame = live_preview(rec, extra_classes='rounded-lg')
         with ui.element('div').classes('w-full min-h-[1rem]'):
@@ -235,7 +259,7 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
 
                 def update_live(rec=rec, live=live) -> None:
                     live.set_text(f'⏺ {tools.human_duration(rec.elapsed)} · '
-                                  f'{tools.human_size(rec.size)} · {rec.state}')
+                                  f'{tools.human_size(rec.size)} · {state_label(rec.state)}')
                     refresh_frame()
 
                 update_live()
@@ -248,24 +272,30 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
         with ui.row().classes('w-full items-center gap-0 flex-nowrap'):
             if rec:
                 ui.button(icon='stop', on_click=do_stop).props('round flat dense color=red') \
-                    .tooltip('Detener y guardar')
+                    .tooltip(t('Stop and save', 'Detener y guardar'))
             else:
                 ui.button(icon='fiber_manual_record', on_click=do_record) \
-                    .props('round flat dense color=red').tooltip('Grabar ahora')
+                    .props('round flat dense color=red') \
+                    .tooltip(t('Record now', 'Grabar ahora'))
                 ui.button(icon='refresh', on_click=do_check).props('round flat dense') \
-                    .tooltip('Comprobar estado')
+                    .tooltip(t('Check status', 'Comprobar estado'))
             with ui.button(icon='more_vert').props('round flat dense'):
                 with ui.menu():
-                    ui.menu_item('Ver registro', on_click=show_log)
-                    ui.menu_item('Abrir su carpeta de grabaciones', on_click=open_folder)
-                    ui.menu_item('Copiar URL del canal',
-                                 on_click=lambda: copy_to_clipboard(s.url, 'URL copiada'))
-                    ui.menu_item('Quitar de la lista', on_click=do_remove)
+                    ui.menu_item(t('View log', 'Ver registro'), on_click=show_log)
+                    ui.menu_item(t('Open its recordings folder',
+                                   'Abrir su carpeta de grabaciones'), on_click=open_folder)
+                    ui.menu_item(t('Copy channel URL', 'Copiar URL del canal'),
+                                 on_click=lambda: copy_to_clipboard(
+                                     s.url, t('URL copied', 'URL copiada')))
+                    ui.menu_item(t('Remove from the list', 'Quitar de la lista'),
+                                 on_click=do_remove)
             ui.space()
             ui.switch(value=s.auto_record,
                       on_change=lambda e: (setattr(s, 'auto_record', e.value),
                                            monitor.persist())) \
-                .props('dense size=sm').tooltip('Auto-grabar cuando esté en vivo')
+                .props('dense size=sm') \
+                .tooltip(t('Auto-record when it goes live',
+                           'Auto-grabar cuando esté en vivo'))
 
 
 def _subtitle(s: Streamer) -> str:
@@ -276,5 +306,6 @@ def _subtitle(s: Streamer) -> str:
         parts.append(f'⚠ {s.last_error[:120]}')
     remaining = s.cooldown_until - time.time()
     if remaining > 90:
-        parts.append(f'auto en pausa {int(remaining / 60)} min')
+        parts.append(t('auto paused {} min', 'auto en pausa {} min')
+                     .format(int(remaining / 60)))
     return ' · '.join(parts)

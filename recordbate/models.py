@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .i18n import t
+
 
 class Status(str, Enum):
     UNKNOWN = 'unknown'
@@ -11,13 +13,24 @@ class Status(str, Enum):
     RECORDING = 'recording'
 
 
-# label + Quasar colour for the UI badges
-STATUS_LABELS: dict[Status, tuple[str, str]] = {
-    Status.UNKNOWN: ('DESCONOCIDO', 'grey-7'),
-    Status.OFFLINE: ('OFFLINE', 'blue-grey-7'),
-    Status.ONLINE: ('EN VIVO', 'green-8'),
-    Status.RECORDING: ('GRABANDO', 'red-8'),
-}
+def status_label(status: Status) -> tuple[str, str]:
+    """Display label + Quasar colour for a channel status, in the current language."""
+    return {
+        Status.UNKNOWN: (t('UNKNOWN', 'DESCONOCIDO'), 'grey-7'),
+        Status.OFFLINE: (t('OFFLINE', 'OFFLINE'), 'blue-grey-7'),
+        Status.ONLINE: (t('LIVE', 'EN VIVO'), 'green-8'),
+        Status.RECORDING: (t('RECORDING', 'GRABANDO'), 'red-8'),
+    }[status]
+
+
+def state_label(state: str) -> str:
+    """Display label for a Recording.state value (internal ids stay English)."""
+    return {
+        'starting': t('starting', 'iniciando'),
+        'recording': t('recording', 'grabando'),
+        'stopping': t('stopping', 'deteniendo'),
+        'processing': t('processing', 'procesando'),
+    }.get(state, state)
 
 
 @dataclass
@@ -35,7 +48,7 @@ class Streamer:
     last_error: str = ''
     last_log: list[str] = field(default_factory=list)
     last_cmd: str = ''
-    last_exit: str = ''       # "código 1", "detenido a mano", "app cerrada"…
+    last_exit: str = ''       # "exit code 1", "stopped by hand", "app closed"…
     last_reason: str = ''     # why the file was kept or dropped
 
     @property

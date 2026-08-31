@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import logbook
+from .i18n import t
 
 _icon = None
 
@@ -31,8 +32,9 @@ def start(icon_path: Path, on_show: Callable[[], None],
         image = _Image.new('RGBA', (64, 64), (225, 29, 72, 255))
 
     menu = pystray.Menu(
-        pystray.MenuItem('Mostrar RecordBate', lambda icon, item: on_show(), default=True),
-        pystray.MenuItem('Salir', lambda icon, item: on_quit()),
+        pystray.MenuItem(t('Show RecordBate', 'Mostrar RecordBate'),
+                         lambda icon, item: on_show(), default=True),
+        pystray.MenuItem(t('Quit', 'Salir'), lambda icon, item: on_quit()),
     )
     _icon = pystray.Icon('recordbate', image, 'RecordBate', menu)
 

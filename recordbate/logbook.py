@@ -58,5 +58,6 @@ def read_tail(max_chars: int = 20000) -> str:
     try:
         data = LOG_FILE.read_text(encoding='utf-8', errors='replace')
     except OSError:
-        return '(todavía no hay registro)'
+        from .i18n import t
+        return t('(no log yet)', '(todavía no hay registro)')
     return data[-max_chars:]

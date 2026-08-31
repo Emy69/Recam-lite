@@ -1,87 +1,89 @@
 # RecordBate
 
-App de escritorio que vigila canales de **Twitch, Kick, Stripchat y Chaturbate**, graba los directos automáticamente en cuanto empiezan y te deja organizar el resultado: miniaturas, renombrar, filtrar, reproducir y enviar a la papelera. La interfaz es NiceGUI en una ventana nativa, pero el motor funciona igual sin ella.
+**v0.0.1** · [Documentación en español](README.es.md) · [Tutorial](TUTORIAL.md) · [Tutorial en español](TUTORIAL.es.md)
 
-> Uso personal. Los términos de servicio de estas plataformas no permiten grabar ni redistribuir el contenido; los archivos se quedan en tu disco.
+A desktop app that watches channels on **Twitch, Kick, Stripchat and Chaturbate**, records their streams automatically the moment they go live, and helps you organize the results: live preview while recording, thumbnails, in-app playback with resume, renaming, filtering, and a recycle-bin-safe delete. The interface is NiceGUI in a native window, but the engine runs just as well without it.
 
-## Requisitos
+> Personal use only. These platforms' terms of service do not allow recording or redistributing content; the files stay on your disk.
 
-- Windows con Python 3.11+
-- ffmpeg en el PATH (`winget install Gyan.FFmpeg`)
+## Requirements
 
-## Instalación
+- Windows with Python 3.11+
+- ffmpeg on the PATH (`winget install Gyan.FFmpeg`)
+
+## Install
 
 ```
 py -3 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
 
-## Uso
+## Usage
 
-Doble clic en `run.bat` (o `python app.py`, que abre http://127.0.0.1:8211).
+Double-click `run.bat` (or `python app.py`, which serves http://127.0.0.1:8211).
 
-- **Panel** — pega la URL de un canal y pulsa Añadir. Con *Auto* activado empieza a grabar en cuanto el canal se pone en vivo; también puedes forzarlo con *Grabar ahora*. Cada canal guarda su propio registro: el comando exacto que se lanzó y por qué se cerró.
-- **Biblioteca** — todas las grabaciones con miniatura, reproductor integrado, renombrado y papelera. Un `.ts` (grabación interrumpida) se convierte a MP4 con un clic.
-- **Ajustes** — carpeta, calidad, intervalo de comprobación, plantilla de nombres, acceso desde la red local y actualización de yt-dlp/streamlink.
+- **Panel** — paste a channel URL and press Add. With *Auto* on it starts recording the moment the channel goes live; you can also force it with *Record now*. Channels show as a grid of tiles sorted by usefulness (recording first, then live), the recording ones with a live preview frame. An activity feed shows what happened while you were away.
+- **Library** — recordings grouped into one collapsible section per profile, as thumbnail tiles with duration badges. Click a tile to play in the built-in player (±10 s skips, playback speed, remembers your volume and where you left off). Multi-select sends several recordings to the recycle bin at once. Raw `.ts` captures (interrupted recordings) convert to MP4 with one click.
+- **Settings** — destination folder, quality, poll interval, file name template, interface language (English/Spanish), start with Windows, LAN access (watch the panel from your phone) and one-click updates of yt-dlp/streamlink.
 
-Minimizar manda la ventana a la bandeja del sistema y sigue grabando de fondo.
+Minimizing minimizes normally. The window **X** asks whether to hide the app to the tray (it keeps recording in the background) or quit for real — quitting finalizes captures in flight into clean MP4s.
 
-## Sin GUI (server / bot / CLI)
+## Headless (server / bot / CLI)
 
-El motor no necesita interfaz. Con `recordbate-cli.bat` (o `python -m recordbate.cli`):
+The engine needs no interface. With `recordbate-cli.bat` (or `python -m recordbate.cli`):
 
 ```
-recordbate-cli dashboard           # panel interactivo en la terminal
-recordbate-cli run                 # daemon; Ctrl+C finaliza las grabaciones y sale
-recordbate-cli now                 # qué se está grabando, desde otra terminal
-recordbate-cli stop <usuario>      # para una grabación en curso (o 'all')
-recordbate-cli add <url>           # añade un canal
-recordbate-cli auto <usuario> off  # activa/desactiva auto-grabar
-recordbate-cli remove <usuario>    # quita un canal
-recordbate-cli list                # lista los canales
-recordbate-cli status              # quién está en vivo ahora
-recordbate-cli offset <ms>         # ajuste fino de audio (normalmente no hace falta)
+recordbate-cli dashboard           # interactive terminal panel
+recordbate-cli run                 # daemon; Ctrl+C finalizes captures and exits
+recordbate-cli now                 # what is recording, from another terminal
+recordbate-cli stop <user>         # stop a capture in flight (or 'all')
+recordbate-cli add <url>           # add a channel
+recordbate-cli auto <user> off     # toggle auto-record
+recordbate-cli remove <user>       # remove a channel
+recordbate-cli list                # list the channels
+recordbate-cli status              # who is live right now
+recordbate-cli offset <ms>         # fine audio nudge (normally unnecessary)
 ```
 
-`now` y `stop` hablan con el proceso que esté grabando a través de `data/`, así que funcionan desde otra terminal mientras la GUI o el daemon siguen abiertos.
+`now` and `stop` talk to whichever process is recording through `data/`, so they work from another terminal while the GUI or the daemon stays up.
 
-El **dashboard** es el Panel en versión terminal, en tiempo real:
+The **dashboard** is the Panel in terminal form, in real time:
 
-| Tecla | Acción |
+| Key | Action |
 |---|---|
-| ↑ ↓ / 1-9 | seleccionar canal |
-| **+** (o n) | añadir un canal pegando la URL |
-| Supr / ⌫ | quitar el canal seleccionado |
-| espacio | auto-grabar on/off del seleccionado |
-| A | auto-grabar on/off en todos |
-| r | grabar ya el seleccionado |
-| s | parar la grabación del seleccionado |
-| x | parar todas las grabaciones |
-| v | vigilancia global on/off |
-| q | salir (finaliza lo que esté grabando) |
+| ↑ ↓ / 1-9 | select a channel |
+| **+** (or n) | add a channel by pasting its URL |
+| Del / ⌫ | remove the selected channel |
+| space | toggle auto-record for the selection |
+| A | toggle auto-record for everyone |
+| r | record the selection now |
+| s | stop the selection's capture |
+| x | stop every capture |
+| v | toggle global monitoring |
+| q | quit (finalizes whatever is recording) |
 
-No dejes `dashboard` y `run` abiertos a la vez: los dos grabarían lo mismo.
+Do not leave `dashboard` and `run` open at the same time: both would record the same channels.
 
-## Cómo funciona
+## How it works
 
-Un servicio asyncio comprueba cada X segundos quién está en vivo contra las APIs públicas de cada sitio. Si una no contesta, lo intenta igualmente y deja que el grabador decida.
+An asyncio service checks every X seconds who is live against each site's public APIs. If one does not answer, it tries anyway and lets the recorder decide.
 
-Las peticiones a un mismo sitio van espaciadas (nada de ráfagas con muchos canales), y si aun así llega un 429 la app entra en pausa automática con espera creciente hasta que el sitio deje de limitar — insistir solo alarga el castigo.
+Requests to the same site are spaced out (no bursts with many channels), and if a 429 still arrives the app backs off automatically with a growing wait — insisting only extends the punishment.
 
-La captura va a un `.ts`, que sobrevive a un corte de luz o a un cierre a lo bruto:
+The capture goes to a `.ts`, which survives a power cut or a hard close:
 
-- **Twitch y Kick** con streamlink.
-- **Stripchat y Chaturbate** con ffmpeg directo, que baja el HLS y lo muxea copiando audio y vídeo tal cual, sin recodificar nada.
+- **Twitch and Kick** with streamlink.
+- **Stripchat and Chaturbate** with ffmpeg directly, downloading the HLS and muxing audio and video as-is, no re-encoding.
 
-Al terminar, remux a MP4 (también copia pura), miniatura y a la biblioteca.
+While recording, a recent frame is pulled from the growing file every ~15 seconds as a live preview. When it ends: remux to MP4 (also a pure copy), thumbnail, and into the library.
 
-**Sincronía de audio.** Los cam sites publican el audio y el vídeo como dos playlists HLS separados. Si se le pasan a ffmpeg como dos inputs, desplaza cada uno a cero por su cuenta: abre primero el vídeo, tarda un par de segundos en sondearlo, y para entonces el live-edge del audio ya avanzó — el audio queda adelantado esa cantidad, distinta en cada grabación. La solución es dárselo como **un solo input**: un pequeño master playlist local con la variante de vídeo elegida y su pista de audio, de forma que ffmpeg aplica un único desplazamiento común y la línea de tiempo compartida de la fuente se conserva intacta (verificado por correlación cruzada: de 1.6 s de adelanto a alineación exacta). El ajuste manual de Ajustes queda como retoque fino y se aplica al convertir a MP4, desplazando timestamps sin tocar las muestras.
+**Audio sync.** Cam sites publish audio and video as two separate HLS playlists. Handing them to ffmpeg as two inputs makes it zero-shift each one independently: it opens the video first, spends a couple of seconds probing it, and by then the audio's live edge has moved on — the audio lands that far ahead, a different amount every capture. The fix is a **single input**: a small local master playlist with the chosen video variant and its audio rendition, so ffmpeg applies one common shift and the source's shared timeline survives intact (verified by cross-correlation: from 1.6 s of audio lead to frame-exact alignment). The manual nudge in Settings remains as a fine-tune and applies at MP4 conversion, shifting timestamps without touching samples.
 
-Los procesos de grabación quedan atados a un job object de Windows: si la app muere de golpe, el sistema se los lleva por delante en vez de dejar ffmpeg grabando huérfano.
+Recorder processes are tied to a Windows job object: if the app dies hard, the OS kills them instead of leaving ffmpeg recording as an orphan.
 
-## Dónde queda todo
+## Where everything lives
 
-- `grabaciones/<streamer>/` — los vídeos (configurable en Ajustes).
-- `data/` — configuración, lista de canales, caché de la biblioteca y `recordbate.log`.
+- `grabaciones/<streamer>/` — the videos (configurable in Settings).
+- `data/` — configuration, channel list, library cache and `recordbate.log`.
 
-Ninguna de las dos se sube al repositorio.
+Neither goes into the repository.

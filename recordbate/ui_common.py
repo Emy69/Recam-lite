@@ -8,6 +8,7 @@ import urllib.parse
 from nicegui import ui
 
 from . import logbook
+from .i18n import t
 
 
 def notify(*args, **kwargs) -> None:
@@ -26,7 +27,7 @@ def refresh(refreshable) -> None:
         refreshable.refresh()
 
 
-def copy_to_clipboard(text: str, message: str = 'Copiado al portapapeles') -> None:
+def copy_to_clipboard(text: str, message: str = '') -> None:
     # execCommand and not navigator.clipboard: the native window is not a secure context
     payload = json.dumps(text)
     ui.run_javascript(
@@ -34,7 +35,8 @@ def copy_to_clipboard(text: str, message: str = 'Copiado al portapapeles') -> No
         'a.value=t;a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);'
         'a.focus();a.select();try{document.execCommand("copy");}catch(e){}'
         'document.body.removeChild(a);})();')
-    notify(message, type='positive')
+    notify(message or t('Copied to the clipboard', 'Copiado al portapapeles'),
+           type='positive')
 
 
 def live_preview(rec, extra_classes: str = ''):
@@ -71,6 +73,8 @@ def open_log_file() -> None:
         if hasattr(os, 'startfile'):
             os.startfile(str(logbook.LOG_FILE))   # type: ignore[attr-defined]
         else:
-            notify(f'Registro en: {logbook.LOG_FILE}', type='info')
+            notify(t('Log at: {}', 'Registro en: {}').format(logbook.LOG_FILE),
+                   type='info')
     except OSError as exc:
-        notify(f'No se pudo abrir el registro: {exc}', type='negative')
+        notify(t('Could not open the log: {}', 'No se pudo abrir el registro: {}')
+               .format(exc), type='negative')

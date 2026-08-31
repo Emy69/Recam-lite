@@ -7,12 +7,14 @@ import logging
 
 from nicegui import app, ui
 
-from recordbate import (config, logbook, native_close, status, tray, ui_library,
-                        ui_panel, ui_settings, ui_theme)
+from recordbate import (config, i18n, logbook, native_close, status, tray,
+                        ui_library, ui_panel, ui_settings, ui_theme)
+from recordbate.i18n import t
 from recordbate.library import Library
 from recordbate.monitor import Monitor
 
 cfg = config.load()
+i18n.set_language(getattr(cfg, 'language', 'en'))
 streamers = config.load_streamers()
 library = Library(cfg)
 monitor = Monitor(cfg, streamers, library)
@@ -113,9 +115,9 @@ def _setup_tray() -> None:
     icon = tray.start(ICON_PATH, _show_from_tray, _quit_app)
     if icon is not None:
         _tray_active['on'] = True
-        logbook.event('Bandeja activa: al cerrar la ventana se puede esconder de fondo')
+        logbook.event('Tray active: closing the window can hide it to the background')
     else:
-        logbook.event('Sin bandeja: cerrar la ventana solo ofrece salir')
+        logbook.event('No tray: closing the window only offers quitting')
 
 
 # --- the X asks instead of closing. Minimizing minimizes, nothing else. ---
@@ -131,8 +133,9 @@ def _on_window_closing(_args=None) -> None:
             win.show()
             win.restore()
     rec_count = len(monitor.recordings)
-    warn = (f'Hay {rec_count} grabación(es) en curso; al cerrar se finalizan '
-            'y se guardan.' if rec_count else '')
+    warn = (t('{} capture(s) running; closing finalizes and saves them.',
+              'Hay {} grabación(es) en curso; al cerrar se finalizan y se guardan.')
+            .format(rec_count) if rec_count else '')
     opened = False
     for entry in _close_dialogs[:]:
         try:
@@ -163,18 +166,20 @@ def index() -> None:
     ui_theme.apply()
 
     with ui.dialog() as close_dialog, ui.card().classes('w-96'):
-        ui.label('¿Cerrar RecordBate?').classes('text-base font-medium')
+        ui.label(t('Close RecordBate?', '¿Cerrar RecordBate?')).classes('text-base font-medium')
         close_warn = ui.label('').classes('text-xs text-amber-500')
         if _tray_active['on']:
-            ui.label('«Esconder» la deja grabando de fondo; se recupera desde el '
-                     'icono de la bandeja.').classes('text-xs text-gray-500')
+            ui.label(t('“Hide” keeps it recording in the background; bring it back '
+                       'from the tray icon.',
+                       '«Esconder» la deja grabando de fondo; se recupera desde el '
+                       'icono de la bandeja.')).classes('text-xs text-gray-500')
         with ui.row().classes('w-full justify-end gap-2'):
-            ui.button('Cancelar', on_click=close_dialog.close).props('flat')
+            ui.button(t('Cancel', 'Cancelar'), on_click=close_dialog.close).props('flat')
             if _tray_active['on']:
-                ui.button('Esconder', icon='visibility_off',
+                ui.button(t('Hide', 'Esconder'), icon='visibility_off',
                           on_click=lambda: (close_dialog.close(), _hide_to_tray())) \
                     .props('outline')
-            ui.button('Cerrar del todo', icon='power_settings_new', color='red',
+            ui.button(t('Quit for real', 'Cerrar del todo'), icon='power_settings_new', color='red',
                       on_click=lambda: (close_dialog.close(), _quit_app()))
     _close_dialogs.append({'dialog': close_dialog, 'warn': close_warn})
 
@@ -182,14 +187,16 @@ def index() -> None:
         ui.icon('radio_button_checked').classes('text-2xl text-rose-600')
         ui.label('RecordBate').classes('text-xl font-bold')
         with ui.tabs().props('indicator-color=primary active-color=primary') as tabs:
-            tab_panel = ui.tab('Panel', icon='monitor_heart')
-            tab_lib = ui.tab('Biblioteca', icon='video_library')
-            tab_cfg = ui.tab('Ajustes', icon='settings')
+            tab_panel = ui.tab(t('Panel', 'Panel'), icon='monitor_heart')
+            tab_lib = ui.tab(t('Library', 'Biblioteca'), icon='video_library')
+            tab_cfg = ui.tab(t('Settings', 'Ajustes'), icon='settings')
         ui.space()
         header_status = ui.label('').classes('text-sm text-rose-500 font-medium')
         if NATIVE and _tray_active['on']:
             ui.button(icon='visibility_off', on_click=_hide_to_tray) \
-                .props('flat round').tooltip('Esconder a la bandeja (sigue grabando)')
+                .props('flat round') \
+                .tooltip(t('Hide to the tray (keeps recording)',
+                           'Esconder a la bandeja (sigue grabando)'))
 
     with ui.tab_panels(tabs, value=tab_panel).classes('w-full bg-transparent'):
         with ui.tab_panel(tab_panel):
@@ -205,7 +212,8 @@ def index() -> None:
     async def tick() -> None:
         panel_tick()
         rec_count = len(monitor.recordings)
-        header_status.set_text(f'⏺ {rec_count} grabando' if rec_count else '')
+        header_status.set_text(t('⏺ {} recording', '⏺ {} grabando').format(rec_count)
+                               if rec_count else '')
         if rec_count != seen_count[0]:
             # keep the recording count visible in the tab title too
             seen_count[0] = rec_count
@@ -226,7 +234,7 @@ if __name__ in {'__main__', '__mp_main__'}:
         title='RecordBate',
         favicon=str(ICON_PATH) if ICON_PATH.exists() else '🎥',
         dark=True,
-        language='es',
+        language='es' if i18n.current == 'es' else 'en-US',
         reload=False,
         native=NATIVE,
         window_size=(1240, 840) if NATIVE else None,
