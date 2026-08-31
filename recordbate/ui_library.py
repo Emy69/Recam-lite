@@ -232,13 +232,15 @@ def build(library: Library, monitor=None):
                 with ui.expansion(' · '.join(head_parts), icon='person', value=True) \
                         .classes('w-full rounded-xl border border-white/5 bg-[#131a22]') \
                         .props('dense header-class="text-sm font-medium"'):
-                    with ui.column().classes('w-full gap-0 pb-1'):
+                    with ui.element('div').classes('w-full grid gap-2 pb-2') \
+                            .style('grid-template-columns: '
+                                   'repeat(auto-fill, minmax(200px, 1fr))'):
                         for rec in group['recs']:
-                            _recording_row(rec)
+                            _recording_tile(rec)
                         for item in vids:
-                            _video_row(library, item, rescan, play_item,
-                                       state['select'], item.rel in selected,
-                                       toggle_item)
+                            _video_tile(library, item, rescan, play_item,
+                                        state['select'], item.rel in selected,
+                                        toggle_item)
 
     async def rescan() -> None:
         await library.scan()
@@ -291,29 +293,27 @@ def build(library: Library, monitor=None):
     return rescan
 
 
-def _recording_row(rec) -> None:
+def _recording_tile(rec) -> None:
     """A capture in flight; there is no finished file yet."""
-    with ui.row().classes('rb-row w-full items-center gap-3 px-2 py-1.5 rounded-xl '
-                          'flex-nowrap bg-red-950/25'):
-        with ui.element('div').classes('relative w-44 h-24 flex-none rounded-lg '
-                                       'overflow-hidden bg-red-950/40'):
-            with ui.element('div').classes('w-full h-full flex items-center justify-center'):
-                ui.icon('fiber_manual_record', size='md').classes('text-red-500')
-        with ui.column().classes('gap-0 grow min-w-0'):
-            ui.label(rec.streamer.username).classes('text-sm font-medium truncate w-full')
-            live = ui.label().classes('text-xs text-red-400 font-mono')
+    with ui.card().tight().classes('w-full outline outline-1 outline-red-800/60') \
+            .props('flat bordered'):
+        with ui.element('div').classes('relative w-full h-28 bg-red-950/40 '
+                                       'flex items-center justify-center'):
+            ui.icon('fiber_manual_record', size='md').classes('text-red-500')
+        with ui.column().classes('p-2 pt-1.5 w-full gap-0'):
+            live = ui.label().classes('text-xs text-red-400 font-mono truncate w-full')
 
             def update(rec=rec, live=live) -> None:
-                live.set_text(f'● grabando · {tools.human_duration(rec.elapsed)} · '
+                live.set_text(f'● {tools.human_duration(rec.elapsed)} · '
                               f'{tools.human_size(rec.size)}')
 
             update()
             ui.timer(1.0, update)
-        ui.label('aparecerá al terminar').classes('text-xs text-gray-500 whitespace-nowrap')
+            ui.label('grabando · aparecerá al terminar').classes('text-xs text-gray-500')
 
 
-def _video_row(library: Library, item: LibraryItem, rescan, play_item,
-               select_mode: bool, is_selected: bool, toggle_item) -> None:
+def _video_tile(library: Library, item: LibraryItem, rescan, play_item,
+                select_mode: bool, is_selected: bool, toggle_item) -> None:
     exact_date = datetime.fromtimestamp(item.mtime).strftime('%d/%m/%Y %H:%M')
 
     def rename() -> None:
@@ -371,16 +371,15 @@ def _video_row(library: Library, item: LibraryItem, rescan, play_item,
         else:
             play_item(item)
 
-    row_cls = 'rb-row w-full items-center gap-3 px-2 py-1.5 rounded-xl flex-nowrap'
-    if is_selected:
-        row_cls += ' bg-red-950/40 outline outline-1 outline-red-700'
-    with ui.row().classes(row_cls):
+    outline = ' outline outline-2 outline-red-600' if is_selected else ''
+    with ui.card().tight().classes('w-full relative' + outline).props('flat bordered'):
         if select_mode:
             ui.checkbox(value=is_selected,
                         on_change=lambda e: toggle_item(item, bool(e.value))) \
-                .props('dense keep-color color=red')
+                .props('dense keep-color color=red') \
+                .classes('absolute top-1 left-1 z-10 bg-black/60 rounded')
         thumb = ui.element('div').classes(
-            'relative w-44 h-24 flex-none cursor-pointer rounded-lg overflow-hidden bg-black')
+            'relative w-full h-28 cursor-pointer overflow-hidden bg-black')
         with thumb:
             if item.thumb:
                 ui.image(str(item.thumb)).classes('w-full h-full object-cover')
@@ -397,22 +396,25 @@ def _video_row(library: Library, item: LibraryItem, rescan, play_item,
                     'absolute top-1 left-1 text-[10px] font-medium '
                     'bg-amber-500/90 text-black px-1.5 py-0.5 rounded')
         thumb.on('click', primary)
-        info = ui.column().classes('gap-0 grow min-w-0 cursor-pointer')
-        with info:
-            ui.label(item.path.stem).classes('text-sm font-medium truncate w-full')
-            ui.label(tools.human_ago(item.mtime)) \
-                .classes('text-xs text-gray-500 truncate w-full').tooltip(exact_date)
-        info.on('click', primary)
-        ui.label(tools.human_size(item.size)).classes(
-            'text-xs text-gray-500 whitespace-nowrap')
-        if item.is_ts:
-            ui.button('Convertir a MP4', icon='auto_fix_high', on_click=convert) \
-                .props('flat dense no-caps').tooltip('Grabación sin procesar (.ts)')
-        with ui.button(icon='more_vert').props('flat round dense'):
-            with ui.menu():
-                ui.menu_item('Abrir con el reproductor del sistema',
-                             on_click=lambda: library.open_external(item))
-                ui.menu_item('Mostrar en la carpeta',
-                             on_click=lambda: library.open_in_explorer(item))
-                ui.menu_item('Renombrar', on_click=rename)
-                ui.menu_item('Enviar a la papelera', on_click=delete)
+        with ui.column().classes('p-2 pt-1.5 w-full gap-0'):
+            title = ui.label(item.path.stem) \
+                .classes('text-xs font-medium truncate w-full cursor-pointer') \
+                .tooltip(item.rel)
+            title.on('click', primary)
+            with ui.row().classes('w-full items-center gap-1 flex-nowrap'):
+                ui.label(f'{tools.human_ago(item.mtime)} · '
+                         f'{tools.human_size(item.size)}') \
+                    .classes('text-[11px] text-gray-500 truncate grow min-w-0') \
+                    .tooltip(exact_date)
+                if item.is_ts:
+                    ui.button(icon='auto_fix_high', on_click=convert) \
+                        .props('flat round dense size=sm') \
+                        .tooltip('Convertir a MP4 (grabación sin procesar)')
+                with ui.button(icon='more_vert').props('flat round dense size=sm'):
+                    with ui.menu():
+                        ui.menu_item('Abrir con el reproductor del sistema',
+                                     on_click=lambda: library.open_external(item))
+                        ui.menu_item('Mostrar en la carpeta',
+                                     on_click=lambda: library.open_in_explorer(item))
+                        ui.menu_item('Renombrar', on_click=rename)
+                        ui.menu_item('Enviar a la papelera', on_click=delete)

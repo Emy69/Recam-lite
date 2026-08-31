@@ -17,6 +17,11 @@ COOLDOWN_AFTER_END = 30            # short retry: the stream may have just hiccu
 COOLDOWN_AFTER_MANUAL_STOP = 600   # don't fight the user who just pressed stop
 COOLDOWN_AFTER_OFFLINE = 15
 
+# Post-processing is pure disk I/O on multi-gigabyte files. Stopping several
+# captures at once used to fire that many parallel remuxes and grind the whole
+# machine; one at a time keeps the app snappy and finishes just as fast overall.
+_POSTPROCESS = asyncio.Semaphore(1)
+
 
 class Recording:
     """One capture in flight: subprocess + watchdog + post-processing."""
@@ -200,9 +205,10 @@ class Recording:
             s.last_result = ''
             s.cooldown_until = time.time() + COOLDOWN_AFTER_OFFLINE
         else:
-            final = await remux_to_mp4(src, self.mp4_path) or src
-            await make_thumbnail(final)
-            duration = await probe_duration(final)
+            async with _POSTPROCESS:
+                final = await remux_to_mp4(src, self.mp4_path) or src
+                await make_thumbnail(final)
+                duration = await probe_duration(final)
             final_size = 0
             with contextlib.suppress(OSError):
                 final_size = final.stat().st_size
@@ -262,7 +268,10 @@ async def remux_to_mp4(ts_path: Path, mp4_path: Path) -> Path | None:
                 '-i', str(ts_path), '-map', '0:v:0', '-map', '1:a:0']
     else:
         cmd += ['-i', str(ts_path)]
-    cmd += ['-c', 'copy', '-movflags', '+faststart', str(mp4_path)]
+    # no +faststart: it rewrites the whole file a second time, doubling the disk
+    # work per capture, and the media route serves byte ranges so the browser can
+    # read the trailing moov just fine
+    cmd += ['-c', 'copy', str(mp4_path)]
     rc, _ = await _run_quiet(cmd, timeout=7200)
     if rc == 0 and mp4_path.exists() and mp4_path.stat().st_size > 0:
         with contextlib.suppress(OSError):

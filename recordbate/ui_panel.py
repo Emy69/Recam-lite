@@ -24,10 +24,8 @@ _EVENT_STYLE = {
     'fail': ('warning', 'text-amber-500'),
 }
 
-# shared column widths so the header lines up with the rows
-_COL_STATE = 'w-32 flex-none flex justify-center'
-_COL_AUTO = 'w-12 flex-none flex justify-center'
-_COL_ACTIONS = 'w-32 flex-none flex justify-end items-center gap-0'
+# a responsive grid: as many tiles per row as the width allows
+_GRID_STYLE = 'grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))'
 
 
 def build(monitor: Monitor):
@@ -46,16 +44,9 @@ def build(monitor: Monitor):
                 ui.icon('videocam_off', size='xl').classes('text-gray-600')
                 ui.label('Añade tu primer canal pegando su URL arriba').classes('text-gray-500')
             return
-        with ui.card().classes('w-full p-0 gap-0 overflow-hidden').props('flat bordered'):
-            with ui.row().classes('w-full items-center gap-3 px-3 py-2 flex-nowrap '
-                                  'text-[11px] uppercase tracking-wider text-gray-500'):
-                ui.label('Canal').classes('w-64 flex-none')
-                ui.label('Última actividad').classes('grow min-w-0')
-                ui.label('Estado').classes(_COL_STATE.replace('flex ', '') + ' text-center')
-                ui.label('Auto').classes(_COL_AUTO.replace('flex ', '') + ' text-center')
-                ui.element('div').classes(_COL_ACTIONS)
+        with ui.element('div').classes('w-full grid gap-2').style(_GRID_STYLE):
             for s in ordered_streamers():
-                _streamer_row(monitor, s, streamer_table)
+                _streamer_tile(monitor, s, streamer_table)
 
     @ui.refreshable
     def activity() -> None:
@@ -146,7 +137,7 @@ def build(monitor: Monitor):
     return tick
 
 
-def _streamer_row(monitor: Monitor, s: Streamer, streamer_table) -> None:
+def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
     rec = monitor.recordings.get(s.key)
     status_label, status_color = STATUS_LABELS[s.status]
 
@@ -224,17 +215,19 @@ def _streamer_row(monitor: Monitor, s: Streamer, streamer_table) -> None:
                 ui.button('Cerrar', on_click=d.close).props('flat')
         d.open()
 
-    with ui.row().classes('rb-row w-full items-center gap-3 px-3 py-1.5 flex-nowrap '
-                          'border-t border-white/5'):
-        with ui.row().classes('w-64 flex-none items-center gap-2 flex-nowrap min-w-0'):
+    border = ' outline outline-1 outline-red-800/60' if rec else ''
+    with ui.card().classes('w-full p-2.5 gap-1.5' + border).props('flat bordered'):
+        with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
             fg = '#111' if s.platform == 'kick' else 'white'
             ui.badge(s.platform).style(
                 f'background-color: {PLATFORM_COLORS.get(s.platform, "#666")}; '
                 f'color: {fg}').classes('flex-none')
             ui.link(s.username, s.url, new_tab=True) \
                 .classes('text-sm font-medium no-underline hover:underline '
-                         '!text-gray-100 truncate')
-        with ui.element('div').classes('grow min-w-0'):
+                         '!text-gray-100 truncate grow min-w-0')
+            ui.badge(status_label).props(f'color={status_color}') \
+                .classes('whitespace-nowrap flex-none')
+        with ui.element('div').classes('w-full min-h-[1rem]'):
             if rec:
                 live = ui.label().classes('text-xs font-mono text-red-400 truncate w-full')
 
@@ -249,15 +242,7 @@ def _streamer_row(monitor: Monitor, s: Streamer, streamer_table) -> None:
                 if sub:
                     ui.label(sub).classes('text-xs text-gray-500 truncate w-full') \
                         .tooltip(sub)
-        with ui.element('div').classes(_COL_STATE):
-            ui.badge(status_label).props(f'color={status_color}') \
-                .classes('whitespace-nowrap')
-        with ui.element('div').classes(_COL_AUTO):
-            ui.switch(value=s.auto_record,
-                      on_change=lambda e: (setattr(s, 'auto_record', e.value),
-                                           monitor.persist())) \
-                .props('dense').tooltip('Auto-grabar cuando esté en vivo')
-        with ui.element('div').classes(_COL_ACTIONS):
+        with ui.row().classes('w-full items-center gap-0 flex-nowrap'):
             if rec:
                 ui.button(icon='stop', on_click=do_stop).props('round flat dense color=red') \
                     .tooltip('Detener y guardar')
@@ -273,6 +258,11 @@ def _streamer_row(monitor: Monitor, s: Streamer, streamer_table) -> None:
                     ui.menu_item('Copiar URL del canal',
                                  on_click=lambda: copy_to_clipboard(s.url, 'URL copiada'))
                     ui.menu_item('Quitar de la lista', on_click=do_remove)
+            ui.space()
+            ui.switch(value=s.auto_record,
+                      on_change=lambda e: (setattr(s, 'auto_record', e.value),
+                                           monitor.persist())) \
+                .props('dense size=sm').tooltip('Auto-grabar cuando esté en vivo')
 
 
 def _subtitle(s: Streamer) -> str:
