@@ -22,6 +22,8 @@ COOLDOWN_AFTER_OFFLINE = 15
 # machine; one at a time keeps the app snappy and finishes just as fast overall.
 _POSTPROCESS = asyncio.Semaphore(1)
 
+SNAPSHOT_EVERY = 15   # seconds between live-preview frames of a running capture
+
 
 class Recording:
     """One capture in flight: subprocess + watchdog + post-processing."""
@@ -44,10 +46,51 @@ class Recording:
         self.log: deque[str] = deque(maxlen=200)
         self.proc: asyncio.subprocess.Process | None = None
         self._watch_task: asyncio.Task | None = None
+        self._last_snapshot = 0.0
 
     @property
     def elapsed(self) -> float:
         return time.time() - (self.recording_since or self.started_at)
+
+    @property
+    def live_thumb(self) -> tuple[str, int] | None:
+        """(recordings-relative path, mtime) of the live preview frame, if any.
+
+        The path is what the /media route serves; the mtime doubles as a cache
+        buster so the browser refetches each new frame.
+        """
+        thumb = thumb_path_for(self.mp4_path)
+        try:
+            mtime = int(thumb.stat().st_mtime)
+            return thumb.relative_to(self.cfg.recordings_path).as_posix(), mtime
+        except (OSError, ValueError):
+            return None
+
+    async def _snapshot(self) -> None:
+        """Pull one recent frame out of the growing capture into the thumbnail slot.
+
+        thumb_path_for maps X.ts and X.mp4 to the same file, so the preview simply
+        becomes the recording's real thumbnail slot; finalizing overwrites it with
+        the definitive one.
+        """
+        ffmpeg = tools.ffmpeg_path()
+        src = self.rec_file or self.ts_path
+        if not ffmpeg or not src.exists():
+            return
+        thumb = thumb_path_for(self.mp4_path)
+        thumb.parent.mkdir(parents=True, exist_ok=True)
+        # temp file + replace, so the browser never fetches a half-written image
+        tmp = thumb.with_name(thumb.stem + '.live.jpg')
+        for extra in (['-sseof', '-4'], []):   # near the end; first frame as fallback
+            rc, _ = await _run_quiet([ffmpeg, '-y', '-loglevel', 'error', *extra,
+                                      '-i', str(src), '-frames:v', '1',
+                                      '-vf', 'scale=480:-2', str(tmp)], timeout=20)
+            if rc == 0 and tmp.exists() and tmp.stat().st_size > 0:
+                with contextlib.suppress(OSError):
+                    tmp.replace(thumb)
+                return
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
 
     def _output_file(self) -> Path | None:
         """The file the recorder is really writing to.
@@ -116,6 +159,10 @@ class Recording:
                 self.rec_file = found
                 with contextlib.suppress(OSError):
                     self.size = found.stat().st_size
+            if self.state == 'grabando' \
+                    and time.time() - self._last_snapshot >= SNAPSHOT_EVERY:
+                self._last_snapshot = time.time()
+                await self._snapshot()
             if self.state == 'iniciando':
                 if self.size >= MIN_VALID_BYTES:
                     self.state = 'grabando'
@@ -185,6 +232,10 @@ class Recording:
                 src.unlink(missing_ok=True)
             with contextlib.suppress(OSError):
                 self.ts_path.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                thumb_path_for(self.mp4_path).unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                thumb_path_for(self.mp4_path).parent.rmdir()   # .thumbs, if now empty
             with contextlib.suppress(OSError):
                 if self.ts_path.parent != self.cfg.recordings_path and \
                         not any(self.ts_path.parent.iterdir()):
