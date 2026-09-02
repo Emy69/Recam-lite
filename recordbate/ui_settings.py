@@ -137,6 +137,8 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
                 ('NiceGUI', tools.package_version('nicegui')),
             ]
             for name, version in rows:
+                if name == 'streamlink' and version is None:
+                    continue   # not shipped in the Chaturbate-only frozen build
                 with ui.row().classes('items-center gap-2'):
                     ui.icon('check_circle' if version else 'error',
                             color='green' if version else 'red')
@@ -147,32 +149,40 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
                            'Instala ffmpeg con:  winget install Gyan.FFmpeg')) \
                     .classes('text-xs text-red-500')
 
-            update_btn = ui.button(t('Update yt-dlp and streamlink',
-                                     'Actualizar yt-dlp y streamlink'),
-                                   icon='system_update_alt').props('outline')
-            ui.label(t('These sites change often; if a platform stops recording, '
-                       'update here and restart the app.',
-                       'Estos sitios cambian a menudo; si una plataforma deja de grabar, '
-                       'actualiza aquí y reinicia la app.')).classes('text-xs text-gray-500')
+            if tools.IS_FROZEN:
+                ui.label(t('Tool updates ship with new app builds.',
+                           'Las actualizaciones de herramientas llegan con nuevas '
+                           'versiones de la app.')).classes('text-xs text-gray-500')
+            else:
+                update_btn = ui.button(t('Update yt-dlp and streamlink',
+                                         'Actualizar yt-dlp y streamlink'),
+                                       icon='system_update_alt').props('outline')
+                ui.label(t('These sites change often; if a platform stops recording, '
+                           'update here and restart the app.',
+                           'Estos sitios cambian a menudo; si una plataforma deja de '
+                           'grabar, actualiza aquí y reinicia la app.')) \
+                    .classes('text-xs text-gray-500')
 
-            async def update_tools() -> None:
-                update_btn.props('loading')
-                proc = await asyncio.create_subprocess_exec(
-                    sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp', 'streamlink',
-                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-                    creationflags=tools.CREATE_NO_WINDOW)
-                rc = await proc.wait()
-                update_btn.props(remove='loading')
-                if rc == 0:
-                    ui.notify(t('Updated. Restart the app to use the new versions.',
-                                'Actualizado. Reinicia la app para usar las versiones '
-                                'nuevas.'), type='positive')
-                else:
-                    ui.notify(t('The update failed; check the connection.',
-                                'La actualización falló; revisa la conexión.'),
-                              type='negative')
+                async def update_tools() -> None:
+                    update_btn.props('loading')
+                    proc = await asyncio.create_subprocess_exec(
+                        sys.executable, '-m', 'pip', 'install', '-U',
+                        'yt-dlp', 'streamlink',
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                        creationflags=tools.CREATE_NO_WINDOW)
+                    rc = await proc.wait()
+                    update_btn.props(remove='loading')
+                    if rc == 0:
+                        ui.notify(t('Updated. Restart the app to use the new versions.',
+                                    'Actualizado. Reinicia la app para usar las '
+                                    'versiones nuevas.'), type='positive')
+                    else:
+                        ui.notify(t('The update failed; check the connection.',
+                                    'La actualización falló; revisa la conexión.'),
+                                  type='negative')
 
-            update_btn.on_click(update_tools)
+                update_btn.on_click(update_tools)
 
         def show_log_tail() -> None:
             text = logbook.read_tail()

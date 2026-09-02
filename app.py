@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import multiprocessing
+
+# In a frozen build the native-window child re-runs this script; freeze_support
+# must intercept it before anything below (config, monitor, server) executes.
+multiprocessing.freeze_support()
+
 import asyncio
 import contextlib
 import json
@@ -8,7 +14,7 @@ import logging
 from nicegui import app, ui
 
 from recordbate import (config, i18n, logbook, native_close, status, tray,
-                        ui_library, ui_panel, ui_settings, ui_theme)
+                        ui_library, ui_panel, ui_settings, ui_theme, ui_tutorial)
 from recordbate.i18n import t
 from recordbate.library import Library
 from recordbate.monitor import Monitor
@@ -220,9 +226,17 @@ def index() -> None:
                     config.save(cfg)
                 beta_dialog.close()
 
-            with ui.row().classes('w-full justify-end'):
+            def open_tutorial() -> None:
+                dismiss_beta()
+                ui_tutorial.show()
+
+            with ui.row().classes('w-full justify-end gap-2'):
+                ui.button(t('Open the tutorial', 'Abrir el tutorial'), icon='school',
+                          on_click=open_tutorial).props('outline')
                 ui.button('OK', on_click=dismiss_beta).props('unelevated')
-        ui.timer(0.5, beta_dialog.open, once=True)
+        # on_connect, not a timer: an open() pushed before the websocket handshake
+        # finishes would be lost and the welcome would never show
+        ui.context.client.on_connect(lambda: beta_dialog.open())
 
     with ui.dialog() as close_dialog, ui.card().classes('w-96'):
         ui.label(t('Close RecordBate?', '¿Cerrar RecordBate?')).classes('text-base font-medium')
@@ -251,6 +265,8 @@ def index() -> None:
             tab_cfg = ui.tab(t('Settings', 'Ajustes'), icon='settings')
         ui.space()
         header_status = ui.label('').classes('text-sm text-rose-500 font-medium')
+        ui.button(icon='help_outline', on_click=ui_tutorial.show) \
+            .props('flat round').tooltip(t('Tutorial', 'Tutorial'))
         if NATIVE and _tray_active['on']:
             ui.button(icon='visibility_off', on_click=_hide_to_tray) \
                 .props('flat round') \

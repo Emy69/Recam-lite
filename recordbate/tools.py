@@ -15,6 +15,9 @@ from pathlib import Path
 
 CREATE_NO_WINDOW = 0x08000000 if os.name == 'nt' else 0
 
+IS_FROZEN = bool(getattr(sys, 'frozen', False))
+_APP_DIR = Path(sys.executable).resolve().parent if IS_FROZEN else None
+
 _JOB = None   # None = not tried yet, False = unavailable, (kernel32, handle) = ready
 
 
@@ -93,8 +96,13 @@ _WINGET_LINKS = Path(os.environ.get('LOCALAPPDATA', '')) / 'Microsoft' / 'WinGet
 
 @lru_cache(maxsize=None)
 def find_tool(name: str) -> str | None:
-    """Locate an executable. winget installs land in a shim dir that is often
-    missing from the PATH of a process started before the install."""
+    """Locate an executable. A copy shipped next to the frozen app wins; winget
+    installs land in a shim dir that is often missing from the PATH of a
+    process started before the install."""
+    if _APP_DIR is not None:
+        for candidate in (_APP_DIR / f'{name}.exe', _APP_DIR / 'ffmpeg' / f'{name}.exe'):
+            if candidate.exists():
+                return str(candidate)
     found = shutil.which(name)
     if found:
         return found
@@ -114,6 +122,13 @@ def package_version(package: str) -> str | None:
     try:
         return metadata.version(package)
     except metadata.PackageNotFoundError:
+        # frozen builds often ship the module without its dist-info
+        with contextlib.suppress(Exception):
+            mod = __import__(package.replace('-', '_'))
+            version = getattr(mod, '__version__', None)
+            if version:
+                return version
+            return getattr(getattr(mod, 'version', None), '__version__', None)
         return None
 
 
@@ -197,13 +212,15 @@ def set_startup(enabled: bool) -> bool:
         if not enabled:
             p.unlink(missing_ok=True)
             return True
-        from . import config as config_mod
-        pythonw = config_mod.BASE_DIR / '.venv' / 'Scripts' / 'pythonw.exe'
-        if not pythonw.exists():
-            pythonw = Path(sys.executable).with_name('pythonw.exe')
-        app_py = config_mod.BASE_DIR / 'app.py'
+        if IS_FROZEN:
+            cmd = f'""{Path(sys.executable).resolve()}""'
+        else:
+            from . import config as config_mod
+            pythonw = config_mod.BASE_DIR / '.venv' / 'Scripts' / 'pythonw.exe'
+            if not pythonw.exists():
+                pythonw = Path(sys.executable).with_name('pythonw.exe')
+            cmd = f'""{pythonw}"" ""{config_mod.BASE_DIR / "app.py"}""'
         # quotes are doubled inside a VBS string literal; 0 = hidden window
-        cmd = f'""{pythonw}"" ""{app_py}""'
         p.write_text(f'CreateObject("WScript.Shell").Run "{cmd}", 0, False\r\n',
                      encoding='utf-8')
         return True

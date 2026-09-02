@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
 
 from .models import Streamer
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+if getattr(sys, 'frozen', False):
+    # frozen build: everything lives next to the executable (portable app)
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / 'data'
 CONFIG_FILE = DATA_DIR / 'config.json'
 STREAMERS_FILE = DATA_DIR / 'streamers.json'

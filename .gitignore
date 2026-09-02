@@ -21,3 +21,10 @@ __pycache__/
 *.swp
 Thumbs.db
 desktop.ini
+
+# bundled ffmpeg binaries for the frozen build
+/ffmpeg/
+
+# pyinstaller work dirs
+/build/
+*.spec

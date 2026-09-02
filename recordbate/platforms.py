@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import re
 import sys
 import time
@@ -235,33 +234,46 @@ async def resolve_stripchat_m3u8(username: str, quality: str) -> str:
         return eligible[-1][2]
 
 
+def _ytdlp_resolve_sync(url: str, fmt: str) -> list[str]:
+    """Blocking yt-dlp resolution; runs in a worker thread.
+
+    In-process on purpose: a frozen build has no python to spawn `-m yt_dlp` on.
+    """
+    import yt_dlp
+    opts = {'quiet': True, 'no_warnings': True, 'noplaylist': True,
+            'noprogress': True, 'simulate': True, 'format': fmt}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False) or {}
+    urls = [f['url'] for f in (info.get('requested_formats') or []) if f.get('url')]
+    if not urls and info.get('url'):
+        urls = [info['url']]
+    return urls
+
+
 async def resolve_chaturbate_urls(username: str, quality: str) -> list[str]:
-    """Fallback resolver: [video, audio] URLs of the public stream, via yt-dlp -g."""
-    from . import tools
+    """Fallback resolver: [video, audio] URLs of the public stream, via yt-dlp."""
     if not await _CB_THROTTLE.slot(max_wait=10):
         raise RateLimited(t('chaturbate is rate limiting (429); retrying in ~{}s',
                             'chaturbate está limitando las peticiones (429); se reintenta en ~{}s')
                           .format(int(_CB_THROTTLE.hold_remaining()) + 1))
     fmt = _YTDLP_FORMAT.get(quality, 'bv*+ba/b')
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable, '-m', 'yt_dlp', '-f', fmt, '-g', '--no-playlist',
-        canonical_url('chaturbate', username),
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        creationflags=tools.CREATE_NO_WINDOW)
     try:
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=40)
+        urls = await asyncio.wait_for(
+            asyncio.to_thread(_ytdlp_resolve_sync,
+                              canonical_url('chaturbate', username), fmt),
+            timeout=40)
     except asyncio.TimeoutError:
-        with contextlib.suppress(ProcessLookupError, OSError):
-            proc.kill()
         raise StreamNotAvailable(t('chaturbate did not answer in time',
                                    'chaturbate no respondió a tiempo'))
-    urls = [u for u in out.decode('utf-8', 'replace').splitlines() if u.startswith('http')]
-    if not urls:
-        msg = err.decode('utf-8', 'replace').lower()
+    except Exception as exc:
+        msg = str(exc).lower()
         if 'offline' in msg:
             raise StreamNotAvailable(t('not streaming right now', 'no está emitiendo ahora'))
         if 'private' in msg:
             raise StreamNotAvailable(t('in a private show', 'en show privado'))
+        raise StreamNotAvailable(t('chaturbate: could not resolve the stream',
+                                   'chaturbate: no se pudo resolver el directo'))
+    if not urls:
         raise StreamNotAvailable(t('chaturbate: could not resolve the stream',
                                    'chaturbate: no se pudo resolver el directo'))
     return urls
