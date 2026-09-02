@@ -24,7 +24,8 @@ monitor = Monitor(cfg, streamers, library)
 # EndOfStream tracebacks even though the file was served fine, which buries the
 # errors that actually matter.
 _BENIGN_DISCONNECT = ('No response returned', 'EndOfStream',
-                      'slot belongs to has been deleted')
+                      'slot belongs to has been deleted',
+                      'ConnectionState.CLOSED')
 _BENIGN_ERRORS = (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
 
 
@@ -42,6 +43,31 @@ class _DisconnectFilter(logging.Filter):
 def _quiet_disconnect_noise() -> None:
     for name in ('uvicorn.error', 'asyncio', 'nicegui'):
         logging.getLogger(name).addFilter(_DisconnectFilter())
+
+
+def _patch_wsproto_shutdown() -> None:
+    """Keep quitting from blowing up on a websocket the client closed first.
+
+    On shutdown, uvicorn's wsproto protocol sends CloseConnection to every open
+    websocket; when the window died a moment earlier its connection is already
+    CLOSED and wsproto raises LocalProtocolError. Left alone, that aborts the
+    whole uvicorn shutdown BEFORE the lifespan handlers run — so captures in
+    flight would never be finalized. Swallowing the error and closing the
+    transport is exactly what the original code does right after the send.
+    """
+    with contextlib.suppress(Exception):
+        from uvicorn.protocols.websockets import wsproto_impl
+        from wsproto.utilities import LocalProtocolError
+        original = wsproto_impl.WSProtocol.shutdown
+
+        def shutdown(self) -> None:
+            try:
+                original(self)
+            except LocalProtocolError:
+                with contextlib.suppress(Exception):
+                    self.transport.close()
+
+        wsproto_impl.WSProtocol.shutdown = shutdown
 
 
 def _install_loop_exception_handler() -> None:
@@ -73,6 +99,7 @@ def _start_status_writer() -> None:
 
 
 _quiet_disconnect_noise()
+_patch_wsproto_shutdown()
 
 app.add_media_files('/media', cfg.recordings_path)
 app.on_startup(_install_loop_exception_handler)
