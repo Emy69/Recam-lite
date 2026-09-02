@@ -69,8 +69,8 @@ def build(monitor: Monitor):
     with ui.column().classes('w-full max-w-5xl mx-auto gap-3'):
         with ui.row().classes('w-full items-center gap-2'):
             url_input = ui.input(
-                placeholder=t('Paste a channel URL (Twitch, Kick, Stripchat, Chaturbate)…',
-                              'Pega la URL del canal (Twitch, Kick, Stripchat, Chaturbate)…'),
+                placeholder=t('Paste a Chaturbate channel URL…',
+                              'Pega la URL de un canal de Chaturbate…'),
             ).props('outlined dense clearable').classes('grow')
 
             def add() -> None:

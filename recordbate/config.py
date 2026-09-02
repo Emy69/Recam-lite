@@ -30,6 +30,7 @@ class Config:
     # source timeline, so recordings come out aligned on their own.
     audio_offset_ms: int = 0
     language: str = 'en'           # 'en' | 'es'
+    show_beta_notice: bool = True  # the test-build welcome, until dismissed for good
 
     @property
     def recordings_path(self) -> Path:

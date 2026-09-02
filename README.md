@@ -2,7 +2,9 @@
 
 **v0.0.1** · [Documentación en español](README.es.md) · [Tutorial](TUTORIAL.md) · [Tutorial en español](TUTORIAL.es.md)
 
-A desktop app that watches channels on **Twitch, Kick, Stripchat and Chaturbate**, records their streams automatically the moment they go live, and helps you organize the results: live preview while recording, thumbnails, in-app playback with resume, renaming, filtering, and a recycle-bin-safe delete. The interface is NiceGUI in a native window, but the engine runs just as well without it.
+> **⚠ Test build.** This is an early test version and it records **Chaturbate only** for now. Expect rough edges — anything you can report back (bugs, confusing bits, ideas) genuinely helps development move forward. Thank you for testing!
+
+A desktop app that watches **Chaturbate** channels, records their streams automatically the moment they go live, and helps you organize the results: live preview while recording, thumbnails, in-app playback with resume, renaming, filtering, and a recycle-bin-safe delete. The interface is NiceGUI in a native window, but the engine runs just as well without it. (Support for more platforms is already inside the engine and planned for later builds.)
 
 > Personal use only. These platforms' terms of service do not allow recording or redistributing content; the files stay on your disk.
 
@@ -70,10 +72,7 @@ An asyncio service checks every X seconds who is live against each site's public
 
 Requests to the same site are spaced out (no bursts with many channels), and if a 429 still arrives the app backs off automatically with a growing wait — insisting only extends the punishment.
 
-The capture goes to a `.ts`, which survives a power cut or a hard close:
-
-- **Twitch and Kick** with streamlink.
-- **Stripchat and Chaturbate** with ffmpeg directly, downloading the HLS and muxing audio and video as-is, no re-encoding.
+The capture goes to a `.ts`, which survives a power cut or a hard close: ffmpeg downloads the HLS directly and muxes audio and video as-is, no re-encoding. (The engine also carries streamlink-based support for other platforms, disabled in this test build.)
 
 While recording, a recent frame is pulled from the growing file every ~15 seconds as a live preview. When it ends: remux to MP4 (also a pure copy), thumbnail, and into the library.
 

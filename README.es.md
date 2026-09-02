@@ -2,7 +2,9 @@
 
 **v0.0.1** · [English documentation](README.md) · [Tutorial](TUTORIAL.es.md) · [Tutorial in English](TUTORIAL.md)
 
-App de escritorio que vigila canales de **Twitch, Kick, Stripchat y Chaturbate**, graba los directos automáticamente en cuanto empiezan y te ayuda a organizar el resultado: vista previa en vivo mientras graba, miniaturas, reproductor integrado con reanudación, renombrado, filtros y borrado seguro a la papelera. La interfaz es NiceGUI en ventana nativa, pero el motor funciona igual sin ella.
+> **⚠ Versión de prueba.** Esta es una versión de prueba temprana y por ahora graba **solo Chaturbate**. Puede que algo falle — cualquier cosa que puedas contar (fallos, partes confusas, ideas) ayuda de verdad a seguir con el desarrollo. ¡Gracias por probarla!
+
+App de escritorio que vigila canales de **Chaturbate**, graba los directos automáticamente en cuanto empiezan y te ayuda a organizar el resultado: vista previa en vivo mientras graba, miniaturas, reproductor integrado con reanudación, renombrado, filtros y borrado seguro a la papelera. La interfaz es NiceGUI en ventana nativa, pero el motor funciona igual sin ella. (El soporte para más plataformas ya está dentro del motor y llegará en futuras versiones.)
 
 > Uso personal. Los términos de servicio de estas plataformas no permiten grabar ni redistribuir el contenido; los archivos se quedan en tu disco.
 
@@ -72,10 +74,7 @@ Un servicio asyncio comprueba cada X segundos quién está en vivo contra las AP
 
 Las peticiones a un mismo sitio van espaciadas (nada de ráfagas con muchos canales), y si aun así llega un 429 la app entra en pausa automática con espera creciente — insistir solo alarga el castigo.
 
-La captura va a un `.ts`, que sobrevive a un corte de luz o a un cierre a lo bruto:
-
-- **Twitch y Kick** con streamlink.
-- **Stripchat y Chaturbate** con ffmpeg directo, que baja el HLS y muxea audio y vídeo tal cual, sin recodificar.
+La captura va a un `.ts`, que sobrevive a un corte de luz o a un cierre a lo bruto: ffmpeg baja el HLS directamente y muxea audio y vídeo tal cual, sin recodificar. (El motor también lleva soporte vía streamlink para otras plataformas, desactivado en esta versión de prueba.)
 
 Mientras graba, cada ~15 segundos se saca un fotograma reciente del archivo en crecimiento como vista previa. Al terminar: remux a MP4 (también copia pura), miniatura y a la biblioteca.
 

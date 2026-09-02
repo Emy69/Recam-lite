@@ -5,6 +5,9 @@
 # local state: config with absolute paths, channel list, log, cache, pending commands
 /data/
 
+# release artifacts
+/dist/
+
 # python
 .venv/
 __pycache__/

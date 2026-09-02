@@ -181,8 +181,10 @@ class Monitor:
     def add_streamer(self, text: str) -> Streamer:
         detected = platforms.detect(text)
         if not detected:
-            raise ValueError(t('URL not recognized. Twitch, Kick, Stripchat and Chaturbate links work.',
-                               'No reconozco esa URL. Vale un enlace de Twitch, Kick, Stripchat o Chaturbate.'))
+            raise ValueError(t('That does not look like a Chaturbate channel URL. '
+                               'This test build records Chaturbate only.',
+                               'Eso no parece una URL de canal de Chaturbate. '
+                               'Esta versión de prueba solo graba Chaturbate.'))
         platform, username = detected
         streamer = Streamer(url=platforms.canonical_url(platform, username),
                             platform=platform, username=username)

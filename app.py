@@ -165,6 +165,38 @@ def index() -> None:
     """Every client (PC, phone…) builds its own view over the shared engine."""
     ui_theme.apply()
 
+    # test-build welcome: shown on every start until the tester opts out
+    if getattr(cfg, 'show_beta_notice', True):
+        with ui.dialog() as beta_dialog, ui.card().classes('w-[440px] max-w-full gap-2'):
+            with ui.row().classes('items-center gap-2'):
+                ui.icon('science').classes('text-2xl text-amber-500')
+                ui.label(t('Welcome to the RecordBate test build',
+                           'Bienvenido a la versión de prueba de RecordBate')) \
+                    .classes('text-base font-medium')
+            ui.label(t('This is an early test version (v0.0.1). For now it records '
+                       'Chaturbate only, and some things may still break.',
+                       'Esta es una versión de prueba temprana (v0.0.1). Por ahora '
+                       'solo graba Chaturbate, y puede que algo falle todavía.')) \
+                .classes('text-sm')
+            ui.label(t('Anything you can report back — bugs, confusing bits, ideas — '
+                       'is genuinely useful to keep development going. Thank you for '
+                       'testing!',
+                       'Cualquier cosa que puedas contar — fallos, partes confusas, '
+                       'ideas — es realmente útil para seguir con el desarrollo. '
+                       '¡Gracias por probarla!')).classes('text-sm text-gray-400')
+            dont_show = ui.checkbox(t("Don't show this again", 'No volver a mostrar esto')) \
+                .props('dense').classes('text-xs')
+
+            def dismiss_beta() -> None:
+                if dont_show.value:
+                    cfg.show_beta_notice = False
+                    config.save(cfg)
+                beta_dialog.close()
+
+            with ui.row().classes('w-full justify-end'):
+                ui.button('OK', on_click=dismiss_beta).props('unelevated')
+        ui.timer(0.5, beta_dialog.open, once=True)
+
     with ui.dialog() as close_dialog, ui.card().classes('w-96'):
         ui.label(t('Close RecordBate?', '¿Cerrar RecordBate?')).classes('text-base font-medium')
         close_warn = ui.label('').classes('text-xs text-amber-500')

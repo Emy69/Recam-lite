@@ -2,6 +2,8 @@
 
 *Versión en español: [TUTORIAL.es.md](TUTORIAL.es.md)*
 
+> **⚠ Test build** — v0.0.1 records **Chaturbate only** for now. Any feedback you can share truly helps development. Thank you for testing!
+
 A step-by-step guide from zero to your first automatic recording.
 
 ## 1. Install the prerequisites
@@ -37,7 +39,7 @@ The interface is in English by default. To switch to Spanish: **Settings → Lan
 
 ## 4. Add your first channel
 
-1. Copy a channel URL from your browser — for example `https://www.twitch.tv/somechannel` or `https://chaturbate.com/somemodel`.
+1. Copy a Chaturbate channel URL from your browser — for example `https://chaturbate.com/somemodel`.
 2. Paste it into the box at the top of the **Panel** and press **Add** (or Enter).
 
 The channel appears as a tile with its platform badge and status: **LIVE**, **OFFLINE**, **UNKNOWN** or **RECORDING**.

@@ -264,6 +264,9 @@ async def _run() -> None:
             'Comprobando cada {}s · máx {} a la vez · Ctrl+C para parar '
             '(finaliza las grabaciones en curso).')
           .format(cfg.poll_seconds, cfg.max_concurrent))
+    print(t('(test build v0.0.1, Chaturbate only — any feedback helps development)',
+            '(versión de prueba v0.0.1, solo Chaturbate — cualquier comentario '
+            'ayuda al desarrollo)'))
     logbook.event('CLI: started')
     status_mod.drain_commands()   # anything queued before we started is stale
     await monitor.start()

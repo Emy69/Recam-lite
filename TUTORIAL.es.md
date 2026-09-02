@@ -2,6 +2,8 @@
 
 *English version: [TUTORIAL.md](TUTORIAL.md)*
 
+> **⚠ Versión de prueba** — la v0.0.1 graba **solo Chaturbate** por ahora. Cualquier comentario que puedas dejar ayuda de verdad al desarrollo. ¡Gracias por probarla!
+
 Guía paso a paso desde cero hasta tu primera grabación automática.
 
 ## 1. Instala los requisitos
@@ -37,7 +39,7 @@ La interfaz está en inglés por defecto. Para pasarla a español: **Settings �
 
 ## 4. Añade tu primer canal
 
-1. Copia la URL de un canal desde el navegador — por ejemplo `https://www.twitch.tv/uncanal` o `https://chaturbate.com/unmodelo`.
+1. Copia la URL de un canal de Chaturbate desde el navegador — por ejemplo `https://chaturbate.com/unmodelo`.
 2. Pégala en la caja de arriba del **Panel** y pulsa **Añadir** (o Enter).
 
 El canal aparece como tarjeta con su badge de plataforma y su estado: **EN VIVO**, **OFFLINE**, **DESCONOCIDO** o **GRABANDO**.

@@ -25,6 +25,11 @@ PLATFORM_COLORS = {
     'stripchat': '#E6224B',
 }
 
+# The 0.0.1 test build ships Chaturbate-only. The engine still carries the other
+# platforms end to end; putting them back is just widening this tuple (and
+# restoring the add-channel wording in monitor/ui_panel).
+ENABLED_PLATFORMS: tuple[str, ...] = ('chaturbate',)
+
 _PATTERNS = [
     ('twitch', re.compile(r'(?:https?://)?(?:www\.|m\.)?twitch\.tv/([A-Za-z0-9_]{2,30})', re.I)),
     ('kick', re.compile(r'(?:https?://)?(?:www\.)?kick\.com/([A-Za-z0-9_\-]{2,30})', re.I)),
@@ -41,6 +46,8 @@ _RESERVED = {'videos', 'directory', 'category', 'categories', 'search', 'setting
 def detect(text: str) -> tuple[str, str] | None:
     text = text.strip()
     for platform, pattern in _PATTERNS:
+        if platform not in ENABLED_PLATFORMS:
+            continue
         m = pattern.search(text)
         if m and m.group(1).lower() not in _RESERVED:
             return platform, m.group(1)
