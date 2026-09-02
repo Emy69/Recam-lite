@@ -6,3 +6,5 @@ send2trash
 pystray
 pillow
 rich
+
+# build only (freezing the app): pip install cx_Freeze

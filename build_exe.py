@@ -1,60 +1,74 @@
-"""Build the frozen Windows app and the distributable zip.
+"""Build the frozen Windows app and the distributable zip, with cx_Freeze.
 
-    .venv\\Scripts\\python.exe build_exe.py
+    .venv\\Scripts\\python.exe build_exe.py            # release (no console)
+    .venv\\Scripts\\python.exe build_exe.py --console  # debug build with a console
+
+cx_Freeze rather than PyInstaller on purpose: PyInstaller's self-extracting
+bootloader trips antivirus heuristics constantly; a cx_Freeze build is a
+plain executable next to its libraries and rarely gets flagged.
 
 Everything lands in ONE folder, `build/`: the finished app in
-`build/RecordBate/` and the zip next to it. PyInstaller's intermediate
-files (which embed this machine's absolute paths in analysis reports) go to
-a temp subfolder that is DELETED once the build succeeds — nothing personal
-sticks around, let alone ships.
-
-Wraps the PyInstaller invocation nicegui-pack would generate, plus what this
-app needs on top: no streamlink (the Chaturbate-only build never launches
-it), package metadata for the versions shown in Settings, and the icon next
-to the executable where the app looks for it. If ffmpeg.exe/ffprobe.exe sit
-in a `ffmpeg/` folder next to this script, they are copied into the build so
-testers do not have to install anything.
+`build/RecordBate/` and the zip next to it. If ffmpeg.exe/ffprobe.exe (plus
+their DLLs for a shared build) sit in a `ffmpeg/` folder next to this
+script, they are copied in so testers do not have to install anything.
 """
 from __future__ import annotations
 
 import shutil
-import subprocess
+import sys
 import zipfile
 from pathlib import Path
+
+from cx_Freeze import Executable, setup
 
 from recordbate import __version__
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / 'build'
-WORK = BUILD / 'tmp'                 # PyInstaller scratch; removed at the end
-DIST = BUILD / 'RecordBate'          # the finished app
-NICEGUI_PATH = ROOT / '.venv' / 'Lib' / 'site-packages' / 'nicegui'
+DIST = BUILD / 'RecordBate'
+
+CONSOLE = '--console' in sys.argv
+
+# whole packages, because several of them import their internals dynamically
+# (uvicorn picks protocol classes by name, engineio its async drivers, webview
+# its platform backend, yt_dlp its extractors) and the module finder cannot
+# see that from the imports alone
+PACKAGES = ['recordbate', 'nicegui', 'uvicorn', 'wsproto', 'engineio', 'socketio',
+            'webview', 'clr_loader', 'pythonnet', 'yt_dlp', 'httpx', 'certifi',
+            'PIL', 'pystray', 'send2trash', 'rich']
+
+EXCLUDES = ['streamlink', 'tkinter', 'unittest', 'pydoc_data', 'pip', 'setuptools']
 
 
-def run(cmd: list[str]) -> None:
-    print('>', ' '.join(cmd))
-    subprocess.run(cmd, check=True, cwd=ROOT)
+def freeze() -> None:
+    shutil.rmtree(DIST, ignore_errors=True)
+    sys.argv = [sys.argv[0], 'build_exe']
+    setup(
+        name='RecordBate',
+        version=__version__,
+        options={'build_exe': {
+            'build_exe': str(DIST),
+            'packages': PACKAGES,
+            'excludes': EXCLUDES,
+            # keep packages as plain folders (with their data files) instead of a
+            # zip: nicegui needs its static/ assets, pythonnet its runtime DLLs
+            'zip_include_packages': [],
+            'zip_exclude_packages': ['*'],
+            'include_msvcr': True,
+        }},
+        executables=[Executable(
+            'app.py',
+            base=None if CONSOLE else 'Win32GUI',
+            target_name='RecordBate.exe',
+            icon=str(ROOT / 'recordbate.ico'),
+        )],
+    )
 
 
 def main() -> None:
-    shutil.rmtree(DIST, ignore_errors=True)
-    run([str(ROOT / '.venv' / 'Scripts' / 'pyinstaller.exe'),
-         '--noconfirm', '--clean',
-         '--name', 'RecordBate',
-         '--windowed', '--onedir',
-         '--icon', str(ROOT / 'recordbate.ico'),
-         '--workpath', str(WORK),
-         '--specpath', str(WORK),
-         '--distpath', str(BUILD),
-         '--add-data', f'{NICEGUI_PATH};nicegui',
-         '--copy-metadata', 'nicegui',
-         '--copy-metadata', 'yt-dlp',
-         '--exclude-module', 'streamlink',
-         'app.py'])
+    freeze()
 
     shutil.copy2(ROOT / 'recordbate.ico', DIST / 'recordbate.ico')
-    # ffmpeg may be a shared build (small exes plus their DLLs); ship the whole
-    # folder so the exes find their libraries next to themselves
     src_ffmpeg = ROOT / 'ffmpeg'
     if src_ffmpeg.is_dir():
         target = DIST / 'ffmpeg'
@@ -73,10 +87,6 @@ def main() -> None:
             if rel.parts[0] in ('data', 'grabaciones'):
                 continue
             z.write(path, Path('RecordBate') / rel)
-
-    # the analysis reports in the work dir list this machine's absolute paths;
-    # wipe them so a finished build leaves only the app and its zip behind
-    shutil.rmtree(WORK, ignore_errors=True)
     print(f'\n{out.name}: {out.stat().st_size / 1_048_576:.1f} MB')
     print(f'app folder: {DIST}')
 
