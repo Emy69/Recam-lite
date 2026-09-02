@@ -1,7 +1,7 @@
 """Shared state between the running engine and other terminals.
 
 Whoever owns the engine (GUI, `cli run` or the dashboard) writes `data/status.json`
-every few seconds; `recordbate-cli now` reads it. Commands travel the other way as
+every few seconds; `recam-cli now` reads it. Commands travel the other way as
 one file per order, which avoids read/write races between processes.
 """
 from __future__ import annotations

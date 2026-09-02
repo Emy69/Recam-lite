@@ -14,11 +14,11 @@ import webbrowser
 
 from nicegui import app, ui
 
-from recordbate import (config, i18n, logbook, native_close, status, tray,
+from recam import (config, i18n, logbook, native_close, status, tray,
                         ui_library, ui_panel, ui_settings, ui_theme, ui_tutorial)
-from recordbate.i18n import t
-from recordbate.library import Library
-from recordbate.monitor import Monitor
+from recam.i18n import t
+from recam.library import Library
+from recam.monitor import Monitor
 
 cfg = config.load()
 i18n.set_language(getattr(cfg, 'language', 'en'))
@@ -95,7 +95,7 @@ def _install_loop_exception_handler() -> None:
 
 
 async def _status_writer() -> None:
-    """Keep data/status.json warm so `recordbate-cli now` works while the GUI runs."""
+    """Keep data/status.json warm so `recam-cli now` works while the GUI runs."""
     while True:
         status.write(monitor)
         await asyncio.sleep(5)
@@ -120,7 +120,7 @@ try:
 except ImportError:
     NATIVE = False   # no pywebview: fall back to opening a browser tab
 
-ICON_PATH = config.BASE_DIR / 'recordbate.ico'
+ICON_PATH = config.BASE_DIR / 'recam.ico'
 _tray_active = {'on': False}
 
 
@@ -204,8 +204,8 @@ def index() -> None:
         with ui.dialog() as beta_dialog, ui.card().classes('w-[440px] max-w-full gap-2'):
             with ui.row().classes('items-center gap-2'):
                 ui.icon('science').classes('text-2xl text-amber-500')
-                ui.label(t('Welcome to the RecordBate test build',
-                           'Bienvenido a la versión de prueba de RecordBate')) \
+                ui.label(t('Welcome to the Recam test build',
+                           'Bienvenido a la versión de prueba de Recam')) \
                     .classes('text-base font-medium')
             ui.label(t('This is an early test version (v0.0.1). For now it records '
                        'Chaturbate only, and some things may still break.',
@@ -250,7 +250,7 @@ def index() -> None:
         ui.context.client.on_connect(lambda: beta_dialog.open())
 
     with ui.dialog() as close_dialog, ui.card().classes('w-96'):
-        ui.label(t('Close RecordBate?', '¿Cerrar RecordBate?')).classes('text-base font-medium')
+        ui.label(t('Close Recam?', '¿Cerrar Recam?')).classes('text-base font-medium')
         close_warn = ui.label('').classes('text-xs text-amber-500')
         if _tray_active['on']:
             ui.label(t('“Hide” keeps it recording in the background; bring it back '
@@ -269,7 +269,7 @@ def index() -> None:
 
     with ui.header().classes('items-center gap-4 px-4'):
         ui.icon('radio_button_checked').classes('text-2xl text-rose-600')
-        ui.label('RecordBate').classes('text-xl font-bold')
+        ui.label('Recam').classes('text-xl font-bold')
         with ui.tabs().props('indicator-color=primary active-color=primary') as tabs:
             tab_panel = ui.tab(t('Panel', 'Panel'), icon='monitor_heart')
             tab_lib = ui.tab(t('Library', 'Biblioteca'), icon='video_library')
@@ -303,7 +303,7 @@ def index() -> None:
         if rec_count != seen_count[0]:
             # keep the recording count visible in the tab title too
             seen_count[0] = rec_count
-            title = f'⏺ {rec_count} · RecordBate' if rec_count else 'RecordBate'
+            title = f'⏺ {rec_count} · Recam' if rec_count else 'Recam'
             ui.run_javascript(f'document.title = {json.dumps(title)}')
         if seen_version[0] != library.version:
             seen_version[0] = library.version
@@ -317,7 +317,7 @@ if __name__ in {'__main__', '__mp_main__'}:
     ui.run(
         host='0.0.0.0' if cfg.lan_access else '127.0.0.1',
         port=cfg.port,
-        title='RecordBate',
+        title='Recam',
         favicon=str(ICON_PATH) if ICON_PATH.exists() else '🎥',
         dark=True,
         language='es' if i18n.current == 'es' else 'en-US',

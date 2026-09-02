@@ -32,11 +32,11 @@ def start(icon_path: Path, on_show: Callable[[], None],
         image = _Image.new('RGBA', (64, 64), (225, 29, 72, 255))
 
     menu = pystray.Menu(
-        pystray.MenuItem(t('Show RecordBate', 'Mostrar RecordBate'),
+        pystray.MenuItem(t('Show Recam', 'Mostrar Recam'),
                          lambda icon, item: on_show(), default=True),
         pystray.MenuItem(t('Quit', 'Salir'), lambda icon, item: on_quit()),
     )
-    _icon = pystray.Icon('recordbate', image, 'RecordBate', menu)
+    _icon = pystray.Icon('recam', image, 'Recam', menu)
 
     def _run() -> None:
         try:

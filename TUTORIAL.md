@@ -1,4 +1,4 @@
-# RecordBate — Tutorial
+# Recam — Tutorial
 
 *Versión en español: [TUTORIAL.es.md](TUTORIAL.es.md)*
 
@@ -19,7 +19,7 @@ Close and reopen the terminal afterwards so the PATH updates.
 
 ## 2. Set up the app
 
-From the RecordBate folder:
+From the Recam folder:
 
 ```
 py -3 -m venv .venv
@@ -78,17 +78,17 @@ Recordings are grouped into **one collapsible section per profile**. Inside each
 
 - **Minimize** minimizes to the taskbar, nothing else.
 - The window **X** asks: **Hide** (the app keeps recording in the background; bring it back from the tray icon) or **Quit for real** (captures in flight get finalized and saved first).
-- The tray icon menu also has *Show RecordBate* and *Quit*.
+- The tray icon menu also has *Show Recam* and *Quit*.
 
 ## 9. Command line (optional)
 
-Everything works without the GUI. From the app folder, `recordbate-cli.bat`:
+Everything works without the GUI. From the app folder, `recam-cli.bat`:
 
 ```
-recordbate-cli dashboard      # full-screen terminal panel with keyboard controls
-recordbate-cli run            # headless daemon (for a server or background use)
-recordbate-cli now            # see what is recording from another terminal
-recordbate-cli stop all       # stop every capture (each one is finalized)
+recam-cli dashboard      # full-screen terminal panel with keyboard controls
+recam-cli run            # headless daemon (for a server or background use)
+recam-cli now            # see what is recording from another terminal
+recam-cli stop all       # stop every capture (each one is finalized)
 ```
 
 The CLI shares configuration and channels with the GUI. Don't run the GUI and `run`/`dashboard` at the same time — they would record the same channels twice.
@@ -101,5 +101,5 @@ The CLI shares configuration and channels with the GUI. Don't run the GUI and `r
 | A Stripchat channel says *encrypted stream* | That stream uses Stripchat's Mouflon encryption and cannot be recorded without a key the site rotates constantly. Not fixable from here. |
 | *NOT saved — only X KB* | The attempt never got real data: the stream wasn't public, or it ended immediately. The scraps get cleaned up on their own. |
 | A platform suddenly stops recording | The site changed something. **Settings → Update yt-dlp and streamlink**, restart, try again. |
-| You want to know why a capture ended | Tile menu → **View log**: the exact command, exit code and the recorder's last lines. The full history is in `data/recordbate.log`. |
+| You want to know why a capture ended | Tile menu → **View log**: the exact command, exit code and the recorder's last lines. The full history is in `data/recam.log`. |
 | Audio out of sync | It shouldn't happen anymore (see the README). If a specific file sounds shifted, play it in VLC and tune with `j`/`k`, or set a nudge in Settings for future conversions. |

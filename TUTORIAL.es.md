@@ -1,4 +1,4 @@
-# RecordBate — Tutorial
+# Recam — Tutorial
 
 *English version: [TUTORIAL.md](TUTORIAL.md)*
 
@@ -19,7 +19,7 @@ Cierra y vuelve a abrir la terminal después, para que el PATH se actualice.
 
 ## 2. Prepara la app
 
-Desde la carpeta de RecordBate:
+Desde la carpeta de Recam:
 
 ```
 py -3 -m venv .venv
@@ -78,17 +78,17 @@ Las grabaciones se agrupan en **una sección plegable por perfil**. Dentro se ve
 
 - **Minimizar** minimiza a la barra de tareas, nada más.
 - La **X** de la ventana pregunta: **Esconder** (la app sigue grabando de fondo; se recupera desde el icono de la bandeja) o **Cerrar del todo** (las grabaciones en curso se finalizan y guardan antes).
-- El menú del icono de bandeja también tiene *Mostrar RecordBate* y *Salir*.
+- El menú del icono de bandeja también tiene *Mostrar Recam* y *Salir*.
 
 ## 9. Línea de comandos (opcional)
 
-Todo funciona sin la GUI. Desde la carpeta de la app, `recordbate-cli.bat`:
+Todo funciona sin la GUI. Desde la carpeta de la app, `recam-cli.bat`:
 
 ```
-recordbate-cli dashboard      # panel de terminal a pantalla completa, con teclas
-recordbate-cli run            # daemon sin interfaz (para un server o dejarlo de fondo)
-recordbate-cli now            # ver qué se graba desde otra terminal
-recordbate-cli stop all       # parar todas las capturas (cada una se finaliza)
+recam-cli dashboard      # panel de terminal a pantalla completa, con teclas
+recam-cli run            # daemon sin interfaz (para un server o dejarlo de fondo)
+recam-cli now            # ver qué se graba desde otra terminal
+recam-cli stop all       # parar todas las capturas (cada una se finaliza)
 ```
 
 La CLI comparte configuración y canales con la GUI. No ejecutes la GUI y `run`/`dashboard` a la vez — grabarían lo mismo por duplicado.
@@ -101,5 +101,5 @@ La CLI comparte configuración y canales con la GUI. No ejecutes la GUI y `run`/
 | Un canal de Stripchat dice *emisión cifrada* | Ese directo usa el cifrado Mouflon de Stripchat y no se puede grabar sin una clave que el sitio rota constantemente. No tiene arreglo desde aquí. |
 | *NO guardado — solo X KB* | El intento nunca recibió datos reales: el directo no era público o terminó al instante. Los restos se limpian solos. |
 | Una plataforma deja de grabar de repente | El sitio cambió algo. **Ajustes → Actualizar yt-dlp y streamlink**, reinicia y prueba. |
-| Quieres saber por qué se cerró una grabación | Menú de la tarjeta → **Ver registro**: el comando exacto, el código de salida y las últimas líneas del grabador. El historial completo está en `data/recordbate.log`. |
+| Quieres saber por qué se cerró una grabación | Menú de la tarjeta → **Ver registro**: el comando exacto, el código de salida y las últimas líneas del grabador. El historial completo está en `data/recam.log`. |
 | Audio desincronizado | Ya no debería pasar (ver el README). Si un archivo concreto se oye movido, reprodúcelo en VLC y ajusta con `j`/`k`, o pon un ajuste en Ajustes para futuras conversiones. |

@@ -1,7 +1,7 @@
 """Live dashboard in the terminal: see everything and drive it with the keyboard.
 
 Runs the engine in this process, exactly like the GUI does. Do not leave it up
-next to `recordbate-cli run` or both would record the same channels.
+next to `recam-cli run` or both would record the same channels.
 """
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def _render(monitor: Monitor, cfg: config_mod.Config, selected: int) -> Group:
     streamers = monitor.streamers
     live = sum(1 for s in streamers if s.status in (Status.ONLINE, Status.RECORDING))
     header = Text.assemble(
-        ('  RecordBate  ', 'bold white on dark_red'),
+        ('  Recam  ', 'bold white on dark_red'),
         (t('  {} channels · {} live · {} recording · monitoring ',
            '  {} canales · {} en vivo · {} grabando · vigilancia ')
          .format(len(streamers), live, len(monitor.recordings)), 'white'),

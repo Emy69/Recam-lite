@@ -1,4 +1,4 @@
-# RecordBate
+# Recam
 
 **v0.0.1** · [English documentation](README.md) · [Tutorial](TUTORIAL.es.md) · [Tutorial in English](TUTORIAL.md)
 
@@ -34,19 +34,19 @@ Minimizar minimiza normal. La **X** de la ventana pregunta si esconder la app a 
 
 ## Sin GUI (server / bot / CLI)
 
-El motor no necesita interfaz. Con `recordbate-cli.bat` (o `python -m recordbate.cli`):
+El motor no necesita interfaz. Con `recam-cli.bat` (o `python -m recam.cli`):
 
 ```
-recordbate-cli dashboard           # panel interactivo en la terminal
-recordbate-cli run                 # daemon; Ctrl+C finaliza las grabaciones y sale
-recordbate-cli now                 # qué se está grabando, desde otra terminal
-recordbate-cli stop <usuario>      # para una grabación en curso (o 'all')
-recordbate-cli add <url>           # añade un canal
-recordbate-cli auto <usuario> off  # activa/desactiva auto-grabar
-recordbate-cli remove <usuario>    # quita un canal
-recordbate-cli list                # lista los canales
-recordbate-cli status              # quién está en vivo ahora
-recordbate-cli offset <ms>         # ajuste fino de audio (normalmente no hace falta)
+recam-cli dashboard           # panel interactivo en la terminal
+recam-cli run                 # daemon; Ctrl+C finaliza las grabaciones y sale
+recam-cli now                 # qué se está grabando, desde otra terminal
+recam-cli stop <usuario>      # para una grabación en curso (o 'all')
+recam-cli add <url>           # añade un canal
+recam-cli auto <usuario> off  # activa/desactiva auto-grabar
+recam-cli remove <usuario>    # quita un canal
+recam-cli list                # lista los canales
+recam-cli status              # quién está en vivo ahora
+recam-cli offset <ms>         # ajuste fino de audio (normalmente no hace falta)
 ```
 
 `now` y `stop` hablan con el proceso que esté grabando a través de `data/`, así que funcionan desde otra terminal mientras la GUI o el daemon siguen abiertos.
@@ -85,7 +85,7 @@ Los procesos de grabación quedan atados a un job object de Windows: si la app m
 ## Dónde queda todo
 
 - `grabaciones/<streamer>/` — los vídeos (configurable en Ajustes).
-- `data/` — configuración, lista de canales, caché de la biblioteca y `recordbate.log`.
+- `data/` — configuración, lista de canales, caché de la biblioteca y `recam.log`.
 
 Ninguna de las dos se sube al repositorio.
 

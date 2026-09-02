@@ -1,14 +1,14 @@
-"""RecordBate without a GUI: recording daemon plus channel management.
+"""Recam without a GUI: recording daemon plus channel management.
 
-    python -m recordbate.cli dashboard           # live interactive panel (the nice one)
-    python -m recordbate.cli run                 # headless daemon, Ctrl+C stops it cleanly
-    python -m recordbate.cli add <url>           # add a channel, auto-record on
-    python -m recordbate.cli remove <channel>    # drop a channel
-    python -m recordbate.cli auto <channel> on   # toggle auto-record (on|off)
-    python -m recordbate.cli list                # list the channels
-    python -m recordbate.cli status              # who is live right now?
-    python -m recordbate.cli now                 # what is being recorded right now?
-    python -m recordbate.cli stop <channel>      # stop a capture in flight (or 'all')
+    python -m recam.cli dashboard           # live interactive panel (the nice one)
+    python -m recam.cli run                 # headless daemon, Ctrl+C stops it cleanly
+    python -m recam.cli add <url>           # add a channel, auto-record on
+    python -m recam.cli remove <channel>    # drop a channel
+    python -m recam.cli auto <channel> on   # toggle auto-record (on|off)
+    python -m recam.cli list                # list the channels
+    python -m recam.cli status              # who is live right now?
+    python -m recam.cli now                 # what is being recorded right now?
+    python -m recam.cli stop <channel>      # stop a capture in flight (or 'all')
 """
 from __future__ import annotations
 
@@ -43,8 +43,8 @@ def _match(streamers, query: str):
 def cmd_list(_args: argparse.Namespace) -> int:
     streamers = config_mod.load_streamers()
     if not streamers:
-        print(t('No channels. Add one with:  python -m recordbate.cli add <url>',
-                'No hay canales. Añade con:  python -m recordbate.cli add <url>'))
+        print(t('No channels. Add one with:  python -m recam.cli add <url>',
+                'No hay canales. Añade con:  python -m recam.cli add <url>'))
         return 0
     print(t('{} channels:', '{} canales:').format(len(streamers)))
     for s in streamers:
@@ -116,8 +116,8 @@ def cmd_status(_args: argparse.Namespace) -> int:
 def cmd_now(_args: argparse.Namespace) -> int:
     data = status_mod.read()
     if not data:
-        print(t('No state file. Is the daemon (recordbate-cli run) or the app running?',
-                'No hay estado. ¿Está corriendo el daemon (recordbate-cli run) o la app?'))
+        print(t('No state file. Is the daemon (recam-cli run) or the app running?',
+                'No hay estado. ¿Está corriendo el daemon (recam-cli run) o la app?'))
         return 1
     age = time.time() - data.get('ts', 0)
     if age > STALE_AFTER:
@@ -176,9 +176,9 @@ def cmd_stop(args: argparse.Namespace) -> int:
     everything = channel.lower() in ('all', '*')
     data = status_mod.read()
     if not data or time.time() - data.get('ts', 0) > STALE_AFTER:
-        print(t('⚠ The daemon does not look running (recordbate-cli run). '
+        print(t('⚠ The daemon does not look running (recam-cli run). '
                 'The order stays queued until it starts.',
-                '⚠ El daemon no parece estar corriendo (recordbate-cli run). '
+                '⚠ El daemon no parece estar corriendo (recam-cli run). '
                 'La orden quedará pendiente hasta que arranque.'))
     elif not everything:
         recording = {r['user'].lower() for r in data.get('recording', [])}
@@ -256,8 +256,8 @@ async def _status_loop(monitor: Monitor, stop: asyncio.Event) -> None:
 async def _run() -> None:
     cfg, monitor = _build()
     logbook.enable_console()
-    print(t('RecordBate (CLI) · {} channels · destination: {}',
-            'RecordBate (CLI) · {} canales · destino: {}')
+    print(t('Recam (CLI) · {} channels · destination: {}',
+            'Recam (CLI) · {} canales · destino: {}')
           .format(len(monitor.streamers), cfg.recordings_dir))
     print(t('Checking every {}s · max {} at once · Ctrl+C to stop '
             '(finalizes captures in flight).',
@@ -315,9 +315,9 @@ def main(argv: list[str] | None = None) -> int:
     i18n.set_language(getattr(config_mod.load(), 'language', 'en'))
 
     parser = argparse.ArgumentParser(
-        prog='recordbate',
-        description=t('RecordBate headless (no GUI): record and manage channels',
-                      'RecordBate headless (sin GUI): grabar y gestionar canales'))
+        prog='recam',
+        description=t('Recam headless (no GUI): record and manage channels',
+                      'Recam headless (sin GUI): grabar y gestionar canales'))
     sub = parser.add_subparsers(dest='cmd', required=True)
     sub.add_parser('run', help=t('watch and record in a loop (daemon, no interface)',
                                  'vigila y graba en bucle (daemon, sin interfaz)'))

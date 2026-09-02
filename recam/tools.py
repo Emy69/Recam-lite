@@ -196,7 +196,7 @@ def _startup_shortcut() -> Path | None:
     if not appdata:
         return None
     return (Path(appdata) / 'Microsoft' / 'Windows' / 'Start Menu' / 'Programs'
-            / 'Startup' / 'RecordBate.vbs')
+            / 'Startup' / 'Recam.vbs')
 
 
 def startup_enabled() -> bool:

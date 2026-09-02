@@ -1,4 +1,4 @@
-# RecordBate
+# Recam
 
 **v0.0.1** · [Documentación en español](README.es.md) · [Tutorial](TUTORIAL.md) · [Tutorial en español](TUTORIAL.es.md)
 
@@ -32,19 +32,19 @@ Minimizing minimizes normally. The window **X** asks whether to hide the app to 
 
 ## Headless (server / bot / CLI)
 
-The engine needs no interface. With `recordbate-cli.bat` (or `python -m recordbate.cli`):
+The engine needs no interface. With `recam-cli.bat` (or `python -m recam.cli`):
 
 ```
-recordbate-cli dashboard           # interactive terminal panel
-recordbate-cli run                 # daemon; Ctrl+C finalizes captures and exits
-recordbate-cli now                 # what is recording, from another terminal
-recordbate-cli stop <user>         # stop a capture in flight (or 'all')
-recordbate-cli add <url>           # add a channel
-recordbate-cli auto <user> off     # toggle auto-record
-recordbate-cli remove <user>       # remove a channel
-recordbate-cli list                # list the channels
-recordbate-cli status              # who is live right now
-recordbate-cli offset <ms>         # fine audio nudge (normally unnecessary)
+recam-cli dashboard           # interactive terminal panel
+recam-cli run                 # daemon; Ctrl+C finalizes captures and exits
+recam-cli now                 # what is recording, from another terminal
+recam-cli stop <user>         # stop a capture in flight (or 'all')
+recam-cli add <url>           # add a channel
+recam-cli auto <user> off     # toggle auto-record
+recam-cli remove <user>       # remove a channel
+recam-cli list                # list the channels
+recam-cli status              # who is live right now
+recam-cli offset <ms>         # fine audio nudge (normally unnecessary)
 ```
 
 `now` and `stop` talk to whichever process is recording through `data/`, so they work from another terminal while the GUI or the daemon stays up.
@@ -83,7 +83,7 @@ Recorder processes are tied to a Windows job object: if the app dies hard, the O
 ## Where everything lives
 
 - `grabaciones/<streamer>/` — the videos (configurable in Settings).
-- `data/` — configuration, channel list, library cache and `recordbate.log`.
+- `data/` — configuration, channel list, library cache and `recam.log`.
 
 Neither goes into the repository.
 

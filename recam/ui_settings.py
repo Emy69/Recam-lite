@@ -110,8 +110,8 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
             with ui.card().classes('w-full gap-2').props('flat bordered'):
                 ui.label(t('Start with Windows', 'Inicio con Windows')) \
                     .classes('text-lg font-medium')
-                auto_start = ui.switch(t('Launch RecordBate at sign-in',
-                                         'Arrancar RecordBate al iniciar sesión'),
+                auto_start = ui.switch(t('Launch Recam at sign-in',
+                                         'Arrancar Recam al iniciar sesión'),
                                        value=tools.startup_enabled())
 
                 def on_autostart(e) -> None:
@@ -256,9 +256,9 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
 
         with ui.card().classes('w-full gap-2').props('flat bordered'):
             ui.label(t('About', 'Acerca de')).classes('text-lg font-medium')
-            ui.label(t('RecordBate is made by {}. This is an early test build — '
+            ui.label(t('Recam is made by {}. This is an early test build — '
                        'follow the project and send feedback here:',
-                       'RecordBate está hecho por {}. Esta es una versión de prueba '
+                       'Recam está hecho por {}. Esta es una versión de prueba '
                        'temprana — sigue el proyecto y envía tu feedback aquí:')
                      .format(AUTHOR)).classes('text-sm text-gray-400')
             with ui.row().classes('w-full gap-2 flex-wrap'):
@@ -268,5 +268,5 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
                               on_click=lambda u=url: webbrowser.open(u)) \
                         .props(f'outline no-caps color={color}')
 
-        ui.label(f'RecordBate v{__version__} · {AUTHOR}') \
+        ui.label(f'Recam v{__version__} · {AUTHOR}') \
             .classes('text-xs text-gray-600 self-center')

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import config as config_mod
 
-LOG_FILE: Path = config_mod.DATA_DIR / 'recordbate.log'
+LOG_FILE: Path = config_mod.DATA_DIR / 'recam.log'
 
 _logger: logging.Logger | None = None
 
@@ -17,7 +17,7 @@ def _get() -> logging.Logger:
     global _logger
     if _logger is None:
         config_mod.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        lg = logging.getLogger('recordbate')
+        lg = logging.getLogger('recam')
         lg.setLevel(logging.INFO)
         lg.propagate = False   # keep it out of uvicorn's console
         if not lg.handlers:

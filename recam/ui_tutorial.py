@@ -105,7 +105,7 @@ def show() -> None:
     with ui.dialog() as dialog, ui.card().classes('w-[600px] max-w-full p-0 gap-0'):
         with ui.row().classes('w-full items-center gap-2 px-4 pt-3'):
             ui.icon('school').classes('text-xl text-rose-600')
-            ui.label(t('How RecordBate works', 'Cómo funciona RecordBate')) \
+            ui.label(t('How Recam works', 'Cómo funciona Recam')) \
                 .classes('text-base font-medium')
             ui.space()
             ui.button(icon='close', on_click=dialog.close).props('flat round dense')
