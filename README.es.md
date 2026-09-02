@@ -88,3 +88,13 @@ Los procesos de grabación quedan atados a un job object de Windows: si la app m
 - `data/` — configuración, lista de canales, caché de la biblioteca y `recordbate.log`.
 
 Ninguna de las dos se sube al repositorio.
+
+## Autor y feedback
+
+Hecho por **Emy69**. Esta es una versión de prueba temprana — sigue el proyecto y envía tu feedback:
+
+- Patreon: https://www.patreon.com/c/emy69
+- Discord: https://discord.com/invite/ku8gSPsesh
+- GitHub: https://github.com/Emy69
+- X: https://x.com/dev_emy
+- Buy Me a Coffee: https://buymeacoffee.com/emy_69

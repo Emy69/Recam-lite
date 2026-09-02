@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import webbrowser
 
 from nicegui import app, ui
 
@@ -217,6 +218,16 @@ def index() -> None:
                        'Cualquier cosa que puedas contar — fallos, partes confusas, '
                        'ideas — es realmente útil para seguir con el desarrollo. '
                        '¡Gracias por probarla!')).classes('text-sm text-gray-400')
+            ui.label(t('Made by {} · feedback and updates:', 'Hecho por {} · feedback y '
+                       'novedades:').format(config.AUTHOR)) \
+                .classes('text-xs text-gray-500')
+            with ui.row().classes('gap-1'):
+                ui.button(t('Join the Discord', 'Únete al Discord'), icon='forum',
+                          on_click=lambda: webbrowser.open(config.LINKS['Discord'])) \
+                    .props('flat dense no-caps color=indigo-4')
+                ui.button('Patreon', icon='favorite',
+                          on_click=lambda: webbrowser.open(config.LINKS['Patreon'])) \
+                    .props('flat dense no-caps color=red')
             dont_show = ui.checkbox(t("Don't show this again", 'No volver a mostrar esto')) \
                 .props('dense').classes('text-xs')
 

@@ -5,14 +5,24 @@ import html as html_mod
 import os
 import socket
 import sys
+import webbrowser
 
 from nicegui import ui
 
-from . import __version__, i18n, logbook, tools
+from . import __version__, AUTHOR, LINKS, i18n, logbook, tools
 from . import config as config_mod
 from .i18n import t
 from .monitor import Monitor
 from .ui_common import copy_to_clipboard, open_log_file
+
+# icon + Quasar colour per link, so the About card reads at a glance
+_LINK_STYLE = {
+    'Patreon': ('favorite', 'red'),
+    'GitHub': ('code', 'grey-4'),
+    'X': ('tag', 'grey-4'),
+    'Buy Me a Coffee': ('coffee', 'amber'),
+    'Discord': ('forum', 'indigo-4'),
+}
 
 
 def _lan_ip() -> str | None:
@@ -243,4 +253,20 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
 
         ui.button(t('Save settings', 'Guardar ajustes'), icon='save', on_click=save) \
             .props('unelevated')
-        ui.label(f'RecordBate v{__version__}').classes('text-xs text-gray-600 self-center')
+
+        with ui.card().classes('w-full gap-2').props('flat bordered'):
+            ui.label(t('About', 'Acerca de')).classes('text-lg font-medium')
+            ui.label(t('RecordBate is made by {}. This is an early test build — '
+                       'follow the project and send feedback here:',
+                       'RecordBate está hecho por {}. Esta es una versión de prueba '
+                       'temprana — sigue el proyecto y envía tu feedback aquí:')
+                     .format(AUTHOR)).classes('text-sm text-gray-400')
+            with ui.row().classes('w-full gap-2 flex-wrap'):
+                for name, url in LINKS.items():
+                    icon, color = _LINK_STYLE.get(name, ('link', 'grey-4'))
+                    ui.button(name, icon=icon,
+                              on_click=lambda u=url: webbrowser.open(u)) \
+                        .props(f'outline no-caps color={color}')
+
+        ui.label(f'RecordBate v{__version__} · {AUTHOR}') \
+            .classes('text-xs text-gray-600 self-center')

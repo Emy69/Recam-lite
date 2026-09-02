@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
 
+from . import AUTHOR, LINKS  # noqa: F401  — re-exported for callers using config.*
 from .models import Streamer
 
 if getattr(sys, 'frozen', False):

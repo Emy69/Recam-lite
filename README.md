@@ -86,3 +86,13 @@ Recorder processes are tied to a Windows job object: if the app dies hard, the O
 - `data/` — configuration, channel list, library cache and `recordbate.log`.
 
 Neither goes into the repository.
+
+## Author & feedback
+
+Made by **Emy69**. This is an early test build — follow the project and send feedback:
+
+- Patreon: https://www.patreon.com/c/emy69
+- Discord: https://discord.com/invite/ku8gSPsesh
+- GitHub: https://github.com/Emy69
+- X: https://x.com/dev_emy
+- Buy Me a Coffee: https://buymeacoffee.com/emy_69
