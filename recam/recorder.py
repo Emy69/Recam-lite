@@ -268,11 +268,17 @@ class Recording:
                 final = await remux_to_mp4(src, self.mp4_path) or src
                 await make_thumbnail(final)
                 duration = await probe_duration(final)
+                has_audio = await _has_audio(final)
             final_size = 0
             with contextlib.suppress(OSError):
                 final_size = final.stat().st_size
             reason = t('saved {} · {} · {}', 'guardado {} · {} · {}').format(
                 final.name, tools.human_duration(duration), tools.human_size(final_size))
+            if not has_audio:
+                # loud in the log so a tester's "no audio" report is diagnosable at a glance
+                reason += t(' · WARNING: no audio track', ' · AVISO: sin pista de audio')
+                logbook.event(f'NO AUDIO  {s.username} ({s.platform}) — the capture has '
+                              f'no audio stream: {final.name}')
             saved = True
             s.last_result = reason
             s.last_error = ''
@@ -362,6 +368,18 @@ async def make_thumbnail(video: Path) -> Path | None:
         if rc == 0 and thumb.exists() and thumb.stat().st_size > 0:
             return thumb
     return None
+
+
+async def _has_audio(path: Path) -> bool:
+    """Whether the file has an audio stream. Assumes yes when it cannot tell, so a
+    missing ffprobe never raises a false 'no audio' alarm."""
+    ffprobe = tools.ffprobe_path()
+    if not ffprobe or not path.exists():
+        return True
+    rc, out = await _run_quiet([ffprobe, '-v', 'error', '-select_streams', 'a',
+                                '-show_entries', 'stream=codec_type', '-of', 'csv=p=0',
+                                str(path)], timeout=60)
+    return not (rc == 0 and not out.strip())
 
 
 async def probe_duration(video: Path) -> float | None:

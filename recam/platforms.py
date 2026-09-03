@@ -365,8 +365,15 @@ async def resolve_chaturbate_master(username: str, quality: str) -> str:
 
     lines = ['#EXTM3U', '#EXT-X-VERSION:6', '#EXT-X-INDEPENDENT-SEGMENTS']
     group = re.search(r'AUDIO="([^"]+)"', inf)
-    if group and group.group(1) in audio_lines:
+    if group:
+        if group.group(1) not in audio_lines:
+            # the variant points at a separate audio rendition we could not attach;
+            # a master with just the (video-only) variant would record silently.
+            # Signal the caller to fall back to the dual-input resolver instead.
+            raise RuntimeError('audio rendition not found in master')
         lines.append(audio_lines[group.group(1)])
+    # no AUDIO attribute means the audio is muxed into the variant's own segments,
+    # which -map 0:a:0? in the capture command picks up
     lines += [inf, variant_url]
     return '\n'.join(lines) + '\n'
 
@@ -417,8 +424,10 @@ async def build_record_cmd(platform: str, username: str, quality: str,
     master_path = out_ts.with_suffix('.m3u8')
     master_path.parent.mkdir(parents=True, exist_ok=True)
     master_path.write_text(master, encoding='utf-8')
+    # -map 0:a:0? — the '?' keeps ffmpeg from failing when a stream unexpectedly
+    # carries no audio, while still capturing it whenever it is there
     return [ffmpeg, '-y', '-hide_banner', '-loglevel', 'warning',
             '-protocol_whitelist', 'file,http,https,tcp,tls,crypto',
             '-i', str(master_path),
-            '-map', '0:v:0', '-map', '0:a:0',
+            '-map', '0:v:0', '-map', '0:a:0?',
             '-c', 'copy', '-f', 'mpegts', str(out_ts)]
