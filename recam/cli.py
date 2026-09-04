@@ -197,6 +197,21 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_shutdown(_args: argparse.Namespace) -> int:
+    """Ask a running daemon to stop cleanly (finalizing captures) from another
+    process — a console-signal-free way to stop a windowless daemon."""
+    data = status_mod.read()
+    if not data or time.time() - data.get('ts', 0) > STALE_AFTER:
+        print(t('No daemon appears to be running.',
+                'No parece haber ningún daemon corriendo.'))
+        return 1
+    status_mod.send_command('shutdown')
+    print(t('Shutdown order sent; the daemon finalizes captures and exits shortly.',
+            'Orden de apagado enviada; el daemon finaliza las grabaciones y sale '
+            'en breve.'))
+    return 0
+
+
 def _install_signal_handlers(stop: asyncio.Event, loop: asyncio.AbstractEventLoop) -> None:
     def handler(*_a) -> None:
         loop.call_soon_threadsafe(stop.set)
@@ -215,9 +230,18 @@ def _live_line(monitor: Monitor) -> str:
     return t('▶ recording ({}): ', '▶ grabando ({}): ').format(len(parts)) + ' · '.join(parts)
 
 
-async def _apply_commands(monitor: Monitor) -> None:
+async def _apply_commands(monitor: Monitor) -> bool:
+    """Apply queued orders. Returns True if a daemon shutdown was requested."""
+    shutdown = False
     for cmd in status_mod.drain_commands():
-        if cmd.get('action') != 'stop':
+        action = cmd.get('action')
+        if action == 'shutdown':
+            print(t('⏻ shutdown order received; finalizing…',
+                    '⏻ orden de apagado recibida; finalizando…'))
+            logbook.event('ORDER: shutdown daemon')
+            shutdown = True
+            continue
+        if action != 'stop':
             continue
         ch = (cmd.get('channel') or '').strip().lower()
         recording = [s for s in monitor.streamers if s.key in monitor.recordings]
@@ -229,6 +253,7 @@ async def _apply_commands(monitor: Monitor) -> None:
                   .format(s.username))
             logbook.event(f'ORDER: stop {s.username}')
             await monitor.stop_recording(s)
+    return shutdown
 
 
 async def _status_loop(monitor: Monitor, stop: asyncio.Event) -> None:
@@ -236,7 +261,9 @@ async def _status_loop(monitor: Monitor, stop: asyncio.Event) -> None:
     last_set = None
     ticks = 0
     while not stop.is_set():
-        await _apply_commands(monitor)
+        if await _apply_commands(monitor):
+            stop.set()   # a 'shutdown' order ends the daemon cleanly (finalizes)
+            break
         status_mod.write(monitor)
         cur = tuple(sorted(monitor.recordings))
         if cur != last_set:
@@ -347,6 +374,8 @@ def main(argv: list[str] | None = None) -> int:
                                     'comprueba quién está en vivo ahora'))
     sub.add_parser('now', help=t('show what is being recorded right now',
                                  'muestra lo que se está grabando ahora mismo'))
+    sub.add_parser('shutdown', help=t('tell a running daemon to stop cleanly',
+                                      'pide a un daemon en marcha que se detenga limpio'))
 
     args = parser.parse_args(argv)
     return {
@@ -360,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         'now': cmd_now,
         'stop': cmd_stop,
         'offset': cmd_offset,
+        'shutdown': cmd_shutdown,
     }[args.cmd](args)
 
 
