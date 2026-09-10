@@ -8,7 +8,7 @@ A step-by-step guide from zero to your first automatic recording.
 
 ## 1. Install the prerequisites
 
-You need **Python 3.11+** and **ffmpeg** on Windows.
+You need **Python 3.11+** and **ffmpeg** on Windows. (If ffmpeg is missing, Settings → Tools says so and offers to download it for you; the commands below are the manual way.)
 
 ```
 winget install Python.Python.3.12

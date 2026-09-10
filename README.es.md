@@ -13,7 +13,7 @@ El idioma por defecto de la interfaz es el inglés; cámbialo a español en **Se
 ## Requisitos
 
 - Windows con Python 3.11+
-- ffmpeg en el PATH (`winget install Gyan.FFmpeg`)
+- ffmpeg: en el PATH (`winget install Gyan.FFmpeg`) o descargado con un clic desde Ajustes → Herramientas, que avisa cuando falta
 
 ## Instalación
 

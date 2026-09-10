@@ -11,7 +11,7 @@ A desktop app that watches **Chaturbate** channels, records their streams automa
 ## Requirements
 
 - Windows with Python 3.11+
-- ffmpeg on the PATH (`winget install Gyan.FFmpeg`)
+- ffmpeg: either on the PATH (`winget install Gyan.FFmpeg`) or downloaded with one click from Settings → Tools, which tells you when it is missing
 
 ## Install
 
