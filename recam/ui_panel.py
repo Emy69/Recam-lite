@@ -5,7 +5,6 @@ import contextlib
 import html as html_mod
 import os
 import time
-from typing import Callable
 
 from nicegui import ui
 
@@ -17,9 +16,6 @@ from .monitor import Monitor
 from .platforms import PLATFORM_COLORS, thumbnail_url
 from .ui_common import (copy_to_clipboard, live_preview, live_thumbnail, notify,
                         open_log_file, refresh)
-
-# how often the still of a live room we are not recording gets re-fetched
-_THUMB_EVERY = 30
 
 _EVENT_STYLE = {
     'start': ('fiber_manual_record', 'text-red-500'),
@@ -34,9 +30,8 @@ _GRID_STYLE = 'grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))'
 def build(monitor: Monitor):
     """Build the Panel tab. Returns the callback the page timer should tick."""
 
-    # per-tile widgets the page timer keeps fresh without rebuilding the grid
+    # the "live for …" labels; the page timer re-texts them without rebuilding the grid
     timeline_labels: dict[str, tuple[ui.label, Streamer]] = {}
-    thumb_bumpers: dict[str, Callable[[], None]] = {}
 
     def split_streamers() -> tuple[list[Streamer], list[Streamer]]:
         live = [s for s in monitor.streamers if s.is_live or s.key in monitor.recordings]
@@ -61,12 +56,11 @@ def build(monitor: Monitor):
             return
         with ui.element('div').classes('w-full grid gap-2 items-start').style(_GRID_STYLE):
             for s in items:
-                _streamer_tile(monitor, s, streamer_table, timeline_labels, thumb_bumpers)
+                _streamer_tile(monitor, s, streamer_table, timeline_labels)
 
     @ui.refreshable
     def streamer_table() -> None:
         timeline_labels.clear()
-        thumb_bumpers.clear()
         if not monitor.streamers:
             with ui.card().classes('w-full items-center p-10').props('flat bordered'):
                 ui.icon('videocam_off', size='xl').classes('text-gray-600')
@@ -149,7 +143,6 @@ def build(monitor: Monitor):
         activity()
 
     last_signature: list = [None]
-    last_thumb_bump = [time.time()]
 
     def tick() -> None:
         rec_count = len(monitor.recordings)
@@ -179,16 +172,12 @@ def build(monitor: Monitor):
             text = _timeline_text(s)
             if label.text != text:
                 label.set_text(text)
-        if time.time() - last_thumb_bump[0] >= _THUMB_EVERY:
-            last_thumb_bump[0] = time.time()
-            for bump in list(thumb_bumpers.values()):
-                bump()
 
     return tick
 
 
 def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table,
-                   timeline_labels: dict, thumb_bumpers: dict) -> None:
+                   timeline_labels: dict) -> None:
     rec = monitor.recordings.get(s.key)
     label, color = status_label(s.status)
 
@@ -294,7 +283,7 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table,
         if rec:
             refresh_frame = live_preview(rec, extra_classes='rounded-lg')
         elif s.is_live and (still := thumbnail_url(s.platform, s.username)):
-            thumb_bumpers[s.key] = live_thumbnail(still, extra_classes='rounded-lg')
+            live_thumbnail(still, extra_classes='rounded-lg')
         timeline = ui.label(_timeline_text(s)).classes('text-xs text-gray-400 truncate w-full')
         timeline_labels[s.key] = (timeline, s)
         with ui.element('div').classes('w-full min-h-[1rem]'):

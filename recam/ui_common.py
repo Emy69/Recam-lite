@@ -69,11 +69,11 @@ def live_preview(rec, extra_classes: str = ''):
     return refresh_frame
 
 
-def live_thumbnail(url: str, extra_classes: str = ''):
+def live_thumbnail(url: str, extra_classes: str = '') -> None:
     """Image area showing the site's own still of a live room we are not recording.
 
-    Returns a bump callable for the caller's timer: it re-requests the still with
-    a fresh cache buster, since the site overwrites the same file every few seconds.
+    Fetched once per build (the cache buster keeps a rebuilt tile from reusing a
+    stale copy); it is deliberately not refreshed on a timer.
     """
     with ui.element('div').classes('relative w-full h-28 bg-green-950/40 flex '
                                    'items-center justify-center overflow-hidden '
@@ -87,11 +87,6 @@ def live_thumbnail(url: str, extra_classes: str = ''):
         ui.label(t('● LIVE', '● EN VIVO')) \
             .classes('absolute top-1 left-1 text-[10px] font-medium '
                      'bg-green-700/90 px-1.5 py-0.5 rounded z-10')
-
-    def bump() -> None:
-        image.set_source(f'{url}?t={int(time.time())}')
-
-    return bump
 
 
 def open_log_file() -> None:
