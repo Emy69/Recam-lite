@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import html as html_mod
 import os
@@ -15,7 +14,7 @@ from .models import Status, Streamer, state_label, status_label
 from .monitor import Monitor
 from .platforms import PLATFORM_COLORS, thumbnail_url
 from .ui_common import (copy_to_clipboard, live_preview, live_thumbnail, notify,
-                        open_log_file, refresh)
+                        open_log_file)
 
 _EVENT_STYLE = {
     'start': ('fiber_manual_record', 'text-red-500'),
@@ -30,8 +29,12 @@ _GRID_STYLE = 'grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))'
 def build(monitor: Monitor):
     """Build the Panel tab. Returns the callback the page timer should tick."""
 
-    # the "live for …" labels; the page timer re-texts them without rebuilding the grid
+    # the "live for …" labels; the page timer re-texts them without redrawing anything
     timeline_labels: dict[str, tuple[ui.label, Streamer]] = {}
+    # one container per channel, so a change in one tile redraws only that tile
+    tiles: dict[str, dict] = {}
+    last_layout: list = [None]
+    last_events: list = [None]
 
     def split_streamers() -> tuple[list[Streamer], list[Streamer]]:
         live = [s for s in monitor.streamers if s.is_live or s.key in monitor.recordings]
@@ -45,6 +48,25 @@ def build(monitor: Monitor):
                                  s.username.lower()))
         return live, rest
 
+    def layout_signature() -> tuple:
+        """Which channel sits where; a change here means the grid must be rebuilt."""
+        live, rest = split_streamers()
+        return tuple(s.key for s in live), tuple(s.key for s in rest)
+
+    def tile_signature(s: Streamer) -> tuple:
+        """Everything a tile shows that is not re-texted in place."""
+        rec = monitor.recordings.get(s.key)
+        return (s.status.value, s.auto_record, s.last_result, s.last_error,
+                rec is not None, getattr(rec, 'state', None))
+
+    def render_tile(s: Streamer) -> None:
+        entry = tiles[s.key]
+        entry['box'].clear()
+        timeline_labels.pop(s.key, None)
+        with entry['box']:
+            _streamer_tile(monitor, s, sync, timeline_labels)
+        entry['sig'] = tile_signature(s)
+
     def section(title: str, icon: str, color: str, items: list[Streamer],
                 empty: str) -> None:
         with ui.row().classes('w-full items-center gap-2 mt-1'):
@@ -56,11 +78,14 @@ def build(monitor: Monitor):
             return
         with ui.element('div').classes('w-full grid gap-2 items-start').style(_GRID_STYLE):
             for s in items:
-                _streamer_tile(monitor, s, streamer_table, timeline_labels)
+                tiles[s.key] = {'box': ui.element('div').classes('w-full'), 'sig': None}
+                render_tile(s)
 
     @ui.refreshable
     def streamer_table() -> None:
         timeline_labels.clear()
+        tiles.clear()
+        last_layout[0] = layout_signature()
         if not monitor.streamers:
             with ui.card().classes('w-full items-center p-10').props('flat bordered'):
                 ui.icon('videocam_off', size='xl').classes('text-gray-600')
@@ -73,6 +98,19 @@ def build(monitor: Monitor):
                 t('Nobody is live right now', 'Nadie está en vivo ahora mismo'))
         section(t('Not broadcasting', 'Sin emitir'), 'videocam_off', 'text-gray-500', rest,
                 t('Everyone is live', 'Todos están en vivo'))
+
+    def sync() -> None:
+        """Redraw what changed: the whole grid only when a channel moved between
+        sections (or was added/removed); otherwise just the tiles whose state
+        changed. Rebuilding everything on each change made the page flicker."""
+        with contextlib.suppress(Exception):   # a handler may outlive its own tile
+            if layout_signature() != last_layout[0]:
+                streamer_table.refresh()
+                return
+            for s in list(monitor.streamers):
+                entry = tiles.get(s.key)
+                if entry is not None and entry['sig'] != tile_signature(s):
+                    render_tile(s)
 
     @ui.refreshable
     def activity() -> None:
@@ -109,7 +147,7 @@ def build(monitor: Monitor):
                 ui.notify(t('{} ({}) added. It gets checked on the next cycle.',
                             '{} ({}) añadido. Se comprueba en el próximo ciclo.')
                           .format(s.username, s.platform), type='positive')
-                streamer_table.refresh()
+                sync()
 
             url_input.on('keydown.enter', add)
             ui.button(t('Add', 'Añadir'), icon='add', on_click=add).props('unelevated')
@@ -121,19 +159,19 @@ def build(monitor: Monitor):
                            'Apagada: no se comprueban canales ni se inician grabaciones nuevas'))
 
             async def check_all() -> None:
-                if not monitor.streamers:
+                if not monitor.streamers or monitor.check_progress:
                     return
-                notify(t('Checking {} channels…', 'Comprobando {} canales…')
-                       .format(len(monitor.streamers)), type='info')
-                results = await asyncio.gather(
-                    *(monitor.manual_check(s) for s in monitor.streamers),
-                    return_exceptions=True)
-                live = sum(1 for r in results if r == Status.ONLINE)
+                check_btn.props('loading')
+                try:
+                    live = await monitor.check_all()
+                finally:
+                    check_btn.props(remove='loading')
                 notify(t('{} live out of {}', '{} en vivo de {}')
                        .format(live, len(monitor.streamers)), type='positive')
-                refresh(streamer_table)
+                sync()
 
-            ui.button(t('Check now', 'Comprobar ahora'), icon='radar', on_click=check_all) \
+            check_btn = ui.button(t('Check now', 'Comprobar ahora'), icon='radar',
+                                  on_click=check_all) \
                 .props('flat dense no-caps') \
                 .tooltip(t('Check every channel right now', 'Comprueba todos los canales ya'))
             ui.space()
@@ -141,8 +179,6 @@ def build(monitor: Monitor):
 
         streamer_table()
         activity()
-
-    last_signature: list = [None]
 
     def tick() -> None:
         rec_count = len(monitor.recordings)
@@ -154,20 +190,16 @@ def build(monitor: Monitor):
         free = tools.disk_free(monitor.cfg.recordings_dir)
         if free is not None:
             parts.append(t('{} free', '{} libres').format(tools.human_size(free)))
+        if monitor.check_progress:
+            done, total = monitor.check_progress
+            parts.append(t('checking {}/{}', 'comprobando {}/{}').format(done, total))
         summary.set_text(' · '.join(parts))
-        # rebuilding the tiles throws away focus and open menus, so only do it when
-        # something a tile actually shows has changed
-        signature = tuple(
-            (s.key, s.status.value, s.auto_record, s.last_result, s.last_error,
-             s.key in monitor.recordings,
-             getattr(monitor.recordings.get(s.key), 'state', None))
-            for s in monitor.streamers
-        ) + ((monitor.events[-1]['ts'], len(monitor.events)) if monitor.events else ())
-        if signature != last_signature[0]:
-            last_signature[0] = signature
-            streamer_table.refresh()
+        sync()
+        events = (monitor.events[-1]['ts'], len(monitor.events)) if monitor.events else None
+        if events != last_events[0]:
+            last_events[0] = events
             activity.refresh()
-        # the "live for 12 min" lines drift on their own; cheaper to retext than rebuild
+        # the "live for 12 min" lines drift on their own; cheaper to retext than redraw
         for label, s in list(timeline_labels.values()):
             text = _timeline_text(s)
             if label.text != text:
@@ -176,8 +208,7 @@ def build(monitor: Monitor):
     return tick
 
 
-def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table,
-                   timeline_labels: dict) -> None:
+def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -> None:
     rec = monitor.recordings.get(s.key)
     label, color = status_label(s.status)
 
@@ -189,7 +220,7 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table,
                .format(s.username), type='info')
         s.cooldown_until = 0
         await monitor.start_recording(s)
-        refresh(streamer_table)
+        sync()
 
     async def do_stop() -> None:
         notify(t('Stopping… the file gets processed shortly. '
@@ -197,12 +228,12 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table,
                  'Deteniendo… el archivo se procesará en unos segundos. '
                  'La auto-grabación de este canal queda en pausa 10 minutos.'), type='info')
         await monitor.stop_recording(s)
-        refresh(streamer_table)
+        sync()
 
     async def do_check() -> None:
         status = await monitor.manual_check(s)
         notify(f'{s.username}: {status_label(status)[0]}', type='info')
-        refresh(streamer_table)
+        sync()
 
     async def do_remove() -> None:
         with ui.dialog() as confirm, ui.card():
@@ -220,7 +251,7 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table,
             await monitor.remove_streamer(s)
             notify(t('{} removed from the list', '{} eliminado de la lista')
                    .format(s.username), type='positive')
-            refresh(streamer_table)
+            sync()
 
     def open_folder() -> None:
         folder = monitor.cfg.recordings_path / config_mod.sanitize_segment(s.username)
@@ -283,7 +314,8 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table,
         if rec:
             refresh_frame = live_preview(rec, extra_classes='rounded-lg')
         elif s.is_live and (still := thumbnail_url(s.platform, s.username)):
-            live_thumbnail(still, extra_classes='rounded-lg')
+            # keyed by the broadcast start, so redrawing the tile reuses the cached still
+            live_thumbnail(still, int(s.live_since or s.last_check), extra_classes='rounded-lg')
         timeline = ui.label(_timeline_text(s)).classes('text-xs text-gray-400 truncate w-full')
         timeline_labels[s.key] = (timeline, s)
         with ui.element('div').classes('w-full min-h-[1rem]'):

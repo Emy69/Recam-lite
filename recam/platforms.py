@@ -184,7 +184,9 @@ class _HostThrottle:
         self._penalty = 0.0
 
 
-_CB_THROTTLE = _HostThrottle(min_interval=1.2)
+# 0.8 s keeps a full pass over ~20 channels under 20 s; the 429 hold below is the
+# safety net if the site turns out to want more room than that
+_CB_THROTTLE = _HostThrottle(min_interval=0.8)
 
 
 def rate_limited(platform: str) -> bool:

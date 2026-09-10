@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import time
 import urllib.parse
 
 from nicegui import ui
@@ -69,16 +68,17 @@ def live_preview(rec, extra_classes: str = ''):
     return refresh_frame
 
 
-def live_thumbnail(url: str, extra_classes: str = '') -> None:
+def live_thumbnail(url: str, cache_key: int, extra_classes: str = '') -> None:
     """Image area showing the site's own still of a live room we are not recording.
 
-    Fetched once per build (the cache buster keeps a rebuilt tile from reusing a
-    stale copy); it is deliberately not refreshed on a timer.
+    Fetched once per `cache_key` (the caller passes the broadcast start): the
+    browser reuses the copy across redraws of the tile, and a new broadcast gets
+    a fresh one. Deliberately not refreshed on a timer.
     """
     with ui.element('div').classes('relative w-full h-28 bg-green-950/40 flex '
                                    'items-center justify-center overflow-hidden '
                                    + extra_classes):
-        image = ui.image(f'{url}?t={int(time.time())}').classes('w-full h-full object-cover')
+        image = ui.image(f'{url}?t={cache_key}').classes('w-full h-full object-cover')
         placeholder = ui.icon('sensors', size='md').classes('text-green-500')
         placeholder.set_visibility(False)
         # a still that fails to load shows the icon rather than a broken frame

@@ -28,6 +28,7 @@ class Monitor:
         self.library = library
         self.recordings: dict[str, Recording] = {}
         self.enabled = True
+        self.check_progress: list[int] | None = None   # [done, total] while a pass runs
         self.client: httpx.AsyncClient | None = None
         self._task: asyncio.Task | None = None
         # a short history of what happened, for the panel's activity feed
@@ -79,7 +80,20 @@ class Monitor:
         due = [s for s in list(self.streamers)
                if s.key not in self.recordings and now >= s.cooldown_until]
         if due:
-            await asyncio.gather(*(self._check_one(s) for s in due))
+            await self._check_many(due, self._check_one)
+
+    async def _check_many(self, streamers: list[Streamer], check) -> list:
+        """Run one check per channel, exposing how far along the pass is."""
+        self.check_progress = [0, len(streamers)]
+        try:
+            return await asyncio.gather(*(check(s) for s in streamers),
+                                        return_exceptions=True)
+        finally:
+            self.check_progress = None
+
+    def _count_check(self) -> None:
+        if self.check_progress:
+            self.check_progress[0] += 1
 
     def _apply_probe(self, streamer: Streamer, probe: platforms.Probe) -> bool:
         """Fold a poll result into the channel; True when the list is worth saving."""
@@ -92,9 +106,10 @@ class Monitor:
         return changed
 
     async def _check_one(self, streamer: Streamer) -> None:
-        await asyncio.sleep(random.uniform(0, 2))   # spread the requests out a little
+        # no jitter here: the per-host throttle already spaces the requests out
         probe = await platforms.probe(self.client, streamer.platform, streamer.username)
         streamer.last_check = time.time()
+        self._count_check()
         if streamer.key in self.recordings:
             return
         if self._apply_probe(streamer, probe):
@@ -186,9 +201,15 @@ class Monitor:
     async def manual_check(self, streamer: Streamer) -> Status:
         probe = await platforms.probe(self.client, streamer.platform, streamer.username)
         streamer.last_check = time.time()
+        self._count_check()
         if streamer.key not in self.recordings and self._apply_probe(streamer, probe):
             config_mod.save_streamers(self.streamers)
         return probe.status
+
+    async def check_all(self) -> int:
+        """Poll every channel right now (the panel's button). Returns how many are live."""
+        results = await self._check_many(list(self.streamers), self.manual_check)
+        return sum(1 for r in results if r is Status.ONLINE)
 
     def add_streamer(self, text: str) -> Streamer:
         detected = platforms.detect(text)
