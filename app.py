@@ -267,20 +267,33 @@ def index() -> None:
                       on_click=lambda: (close_dialog.close(), _quit_app()))
     _close_dialogs.append({'dialog': close_dialog, 'warn': close_warn})
 
-    with ui.header().classes('items-center gap-4 px-4'):
-        ui.icon('radio_button_checked').classes('text-2xl text-rose-600')
-        ui.label('Recam').classes('text-xl font-bold')
-        with ui.tabs().props('indicator-color=primary active-color=primary') as tabs:
+    # the activity feed lives in a drawer on the right, toggled from the header
+    activity = ui_panel.build_activity(monitor)
+
+    with ui.header().classes('items-center gap-2 px-4 h-[52px]'):
+        ui.icon('radio_button_checked').classes('text-xl text-rose-600')
+        ui.label('Recam').classes('text-[15px] font-semibold tracking-tight mr-4')
+        with ui.tabs().props('dense no-caps inline-label indicator-color=primary '
+                             'active-color=white').classes('h-[52px]') as tabs:
             tab_panel = ui.tab(t('Panel', 'Panel'), icon='monitor_heart')
             tab_lib = ui.tab(t('Library', 'Biblioteca'), icon='video_library')
             tab_cfg = ui.tab(t('Settings', 'Ajustes'), icon='settings')
         ui.space()
-        header_status = ui.label('').classes('text-sm text-rose-500 font-medium')
+        rec_badge = ui.badge('').props('rounded color=primary') \
+            .classes('text-xs font-semibold px-2.5 py-1')
+        rec_badge.set_visibility(False)
+        with ui.button(icon='history', on_click=activity.toggle) \
+                .props('flat dense color=grey-5') as history_btn:
+            # the dot must not swallow clicks meant for the button under it
+            unread_badge = ui.badge('').props('floating rounded color=amber') \
+                .classes('pointer-events-none')
+            unread_badge.set_visibility(False)
+        history_btn.tooltip(t('Activity', 'Actividad'))
         ui.button(icon='help_outline', on_click=ui_tutorial.show) \
-            .props('flat round').tooltip(t('Tutorial', 'Tutorial'))
+            .props('flat round dense color=grey-5').tooltip(t('Tutorial', 'Tutorial'))
         if NATIVE and _tray_active['on']:
             ui.button(icon='visibility_off', on_click=_hide_to_tray) \
-                .props('flat round') \
+                .props('flat round dense color=grey-5') \
                 .tooltip(t('Hide to the tray (keeps recording)',
                            'Esconder a la bandeja (sigue grabando)'))
 
@@ -294,15 +307,24 @@ def index() -> None:
 
     seen_version = [-1]   # differs from library.version, so the first tick scans
     seen_count = [-1]
+    drawer_open = [False]
 
     async def tick() -> None:
         panel_tick()
+        activity.tick()
+        unread_badge.set_visibility(activity.unread() > 0)
+        if activity.is_open != drawer_open[0]:
+            drawer_open[0] = activity.is_open
+            if drawer_open[0]:
+                history_btn.classes(add='bg-white/10')
+            else:
+                history_btn.classes(remove='bg-white/10')
         rec_count = len(monitor.recordings)
-        header_status.set_text(t('⏺ {} recording', '⏺ {} grabando').format(rec_count)
-                               if rec_count else '')
         if rec_count != seen_count[0]:
-            # keep the recording count visible in the tab title too
+            # keep the recording count visible in the header and the tab title
             seen_count[0] = rec_count
+            rec_badge.set_text(t('{} recording', '{} grabando').format(rec_count))
+            rec_badge.set_visibility(rec_count > 0)
             title = f'⏺ {rec_count} · Recam' if rec_count else 'Recam'
             ui.run_javascript(f'document.title = {json.dumps(title)}')
         if seen_version[0] != library.version:

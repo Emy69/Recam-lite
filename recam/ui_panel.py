@@ -12,18 +12,27 @@ from . import tools
 from .i18n import t
 from .models import Status, Streamer, state_label, status_label
 from .monitor import Monitor
-from .platforms import PLATFORM_COLORS, thumbnail_url
+from .platforms import thumbnail_url
 from .ui_common import (copy_to_clipboard, live_preview, live_thumbnail, notify,
                         open_log_file)
 
 _EVENT_STYLE = {
-    'start': ('fiber_manual_record', 'text-red-500'),
-    'saved': ('check_circle', 'text-green-600'),
+    'start': ('fiber_manual_record', 'text-rose-600'),
+    'saved': ('check_circle', 'text-green-400'),
     'fail': ('warning', 'text-amber-500'),
+}
+
+# short tag for the tile header, in the site's own colour
+_PLATFORM_TAG = {
+    'chaturbate': ('CB', '#F47321'),
+    'stripchat': ('SC', '#E6224B'),
+    'twitch': ('TW', '#9146FF'),
+    'kick': ('KK', '#53FC18'),
 }
 
 # a responsive grid: as many tiles per row as the width allows
 _GRID_STYLE = 'grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))'
+_FEED_LENGTH = 30
 
 
 def build(monitor: Monitor):
@@ -34,7 +43,6 @@ def build(monitor: Monitor):
     # one container per channel, so a change in one tile redraws only that tile
     tiles: dict[str, dict] = {}
     last_layout: list = [None]
-    last_events: list = [None]
 
     def split_streamers() -> tuple[list[Streamer], list[Streamer]]:
         live = [s for s in monitor.streamers if s.is_live or s.key in monitor.recordings]
@@ -67,16 +75,16 @@ def build(monitor: Monitor):
             _streamer_tile(monitor, s, sync, timeline_labels)
         entry['sig'] = tile_signature(s)
 
-    def section(title: str, icon: str, color: str, items: list[Streamer],
-                empty: str) -> None:
+    def section(title: str, dot: str, items: list[Streamer], empty: str) -> None:
         with ui.row().classes('w-full items-center gap-2 mt-1'):
-            ui.icon(icon, size='xs').classes(color)
-            ui.label(title).classes('text-sm font-medium')
-            ui.badge(str(len(items))).props('outline color=grey-6')
+            ui.element('span').classes(f'w-2 h-2 rounded-full {dot}')
+            ui.label(title).classes('text-xs font-semibold uppercase tracking-[.08em] '
+                                    'text-gray-400')
+            ui.badge(str(len(items))).props('outline color=grey-7')
         if not items:
-            ui.label(empty).classes('text-xs text-gray-500 pl-6')
+            ui.label(empty).classes('text-xs text-gray-500 pl-4')
             return
-        with ui.element('div').classes('w-full grid gap-2 items-start').style(_GRID_STYLE):
+        with ui.element('div').classes('w-full grid gap-2.5 items-start').style(_GRID_STYLE):
             for s in items:
                 tiles[s.key] = {'box': ui.element('div').classes('w-full'), 'sig': None}
                 render_tile(s)
@@ -94,9 +102,9 @@ def build(monitor: Monitor):
                     .classes('text-gray-500')
             return
         live, rest = split_streamers()
-        section(t('Live now', 'En vivo ahora'), 'sensors', 'text-green-500', live,
+        section(t('Live now', 'En vivo ahora'), 'bg-green-500', live,
                 t('Nobody is live right now', 'Nadie está en vivo ahora mismo'))
-        section(t('Not broadcasting', 'Sin emitir'), 'videocam_off', 'text-gray-500', rest,
+        section(t('Not broadcasting', 'Sin emitir'), 'bg-slate-500', rest,
                 t('Everyone is live', 'Todos están en vivo'))
 
     def sync() -> None:
@@ -112,27 +120,14 @@ def build(monitor: Monitor):
                 if entry is not None and entry['sig'] != tile_signature(s):
                     render_tile(s)
 
-    @ui.refreshable
-    def activity() -> None:
-        if not monitor.events:
-            return
-        with ui.card().classes('w-full gap-1 p-3').props('flat bordered'):
-            ui.label(t('Recent activity', 'Actividad reciente')).classes('text-sm font-medium')
-            for ev in list(monitor.events)[-8:][::-1]:
-                icon, color = _EVENT_STYLE.get(ev['kind'], ('info', 'text-gray-500'))
-                with ui.row().classes('items-center gap-2 w-full flex-nowrap'):
-                    ui.icon(icon, size='xs').classes(color)
-                    ui.label(ev['text'][:120]).classes('text-xs truncate grow') \
-                        .tooltip(ev['text'])
-                    ui.label(tools.human_ago(ev['ts'])) \
-                        .classes('text-xs text-gray-500 whitespace-nowrap')
-
-    with ui.column().classes('w-full max-w-5xl mx-auto gap-3'):
-        with ui.row().classes('w-full items-center gap-2'):
+    with ui.column().classes('w-full max-w-5xl mx-auto gap-4'):
+        with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
             url_input = ui.input(
                 placeholder=t('Paste a Chaturbate channel URL…',
                               'Pega la URL de un canal de Chaturbate…'),
             ).props('outlined dense clearable').classes('grow')
+            with url_input.add_slot('prepend'):
+                ui.icon('link', size='xs').classes('text-gray-500')
 
             def add() -> None:
                 text = (url_input.value or '').strip()
@@ -150,11 +145,13 @@ def build(monitor: Monitor):
                 sync()
 
             url_input.on('keydown.enter', add)
-            ui.button(t('Add', 'Añadir'), icon='add', on_click=add).props('unelevated')
+            # neutral on purpose: red is reserved for recording
+            ui.button(t('Add', 'Añadir'), icon='add', on_click=add) \
+                .props('unelevated no-caps no-wrap color=blue-grey-9').classes('shrink-0')
 
-        with ui.row().classes('w-full items-center gap-4'):
+        with ui.row().classes('w-full items-center gap-4 flex-nowrap'):
             ui.switch(t('Automatic monitoring', 'Vigilancia automática')) \
-                .bind_value(monitor, 'enabled') \
+                .props('color=positive dense').bind_value(monitor, 'enabled') \
                 .tooltip(t('Off: no channel checks, no new recordings get started',
                            'Apagada: no se comprueban canales ni se inician grabaciones nuevas'))
 
@@ -172,45 +169,195 @@ def build(monitor: Monitor):
 
             check_btn = ui.button(t('Check now', 'Comprobar ahora'), icon='radar',
                                   on_click=check_all) \
-                .props('flat dense no-caps') \
+                .props('flat dense no-caps no-wrap').classes('bg-white/5 text-gray-300 shrink-0') \
                 .tooltip(t('Check every channel right now', 'Comprueba todos los canales ya'))
             ui.space()
-            summary = ui.label().classes('text-sm text-gray-500')
+            with ui.row().classes('items-center gap-3.5 text-xs text-gray-500 flex-nowrap'):
+                channels_lbl = ui.label().classes('text-gray-300 whitespace-nowrap')
+                with ui.row().classes('items-center gap-1.5 flex-nowrap text-green-400'):
+                    ui.element('span').classes('w-1.5 h-1.5 rounded-full bg-green-500')
+                    live_lbl = ui.label().classes('whitespace-nowrap')
+                with ui.row().classes('items-center gap-1.5 flex-nowrap text-rose-400'):
+                    ui.element('span').classes('w-1.5 h-1.5 rounded-full bg-rose-600')
+                    rec_lbl = ui.label().classes('whitespace-nowrap')
+                free_lbl = ui.label().classes('whitespace-nowrap')
+                with ui.row().classes('items-center gap-2 flex-nowrap') as check_row:
+                    check_lbl = ui.label().classes('whitespace-nowrap')
+                    check_bar = ui.linear_progress(0, size='3px', show_value=False,
+                                                   color='grey-5') \
+                        .props('track-color=grey-9').classes('w-14')
+                check_row.set_visibility(False)
 
         streamer_table()
-        activity()
+
+    def retext(label, text: str) -> None:
+        if label.text != text:
+            label.set_text(text)
 
     def tick() -> None:
         rec_count = len(monitor.recordings)
-        live = sum(1 for s in monitor.streamers
-                   if s.status in (Status.ONLINE, Status.RECORDING))
-        parts = [t('{} channels', '{} canales').format(len(monitor.streamers)),
-                 t('{} live', '{} en vivo').format(live),
-                 t('{} recording', '{} grabando').format(rec_count)]
+        live = sum(1 for s in monitor.streamers if s.is_live)
+        retext(channels_lbl, t('{} channels', '{} canales').format(len(monitor.streamers)))
+        retext(live_lbl, t('{} live', '{} en vivo').format(live))
+        retext(rec_lbl, t('{} recording', '{} grabando').format(rec_count))
         free = tools.disk_free(monitor.cfg.recordings_dir)
-        if free is not None:
-            parts.append(t('{} free', '{} libres').format(tools.human_size(free)))
+        retext(free_lbl, t('{} free', '{} libres').format(tools.human_size(free))
+               if free is not None else '')
         if monitor.check_progress:
             done, total = monitor.check_progress
-            parts.append(t('checking {}/{}', 'comprobando {}/{}').format(done, total))
-        summary.set_text(' · '.join(parts))
+            retext(check_lbl, t('checking {}/{}', 'comprobando {}/{}').format(done, total))
+            check_bar.set_value(done / total if total else 0)
+            check_row.set_visibility(True)
+        else:
+            check_row.set_visibility(False)
         sync()
-        events = (monitor.events[-1]['ts'], len(monitor.events)) if monitor.events else None
-        if events != last_events[0]:
-            last_events[0] = events
-            activity.refresh()
         # the "live for 12 min" lines drift on their own; cheaper to retext than redraw
         for label, s in list(timeline_labels.values()):
-            text = _timeline_text(s)
-            if label.text != text:
-                label.set_text(text)
+            retext(label, _timeline_text(s))
 
     return tick
 
 
+class ActivityFeed:
+    """The activity drawer on the right, opened from the header's history button.
+
+    Events newer than the last time the drawer was read are grouped as "since
+    you left" and marked; closing the drawer (or the button) marks them read.
+    """
+
+    def __init__(self, monitor: Monitor) -> None:
+        self.monitor = monitor
+        self.read_ts = time.time()
+        self._seen: tuple | None = None
+        # no 'overlay=false' here: NiceGUI would send the string "false", which Vue
+        # reads as true and the drawer would cover the page instead of pushing it
+        self.drawer = ui.right_drawer(value=False, bordered=True) \
+            .props('width=300').classes('bg-[#0e141b] p-0')
+
+        @ui.refreshable
+        def feed() -> None:
+            self._render()
+
+        self._feed = feed
+        with self.drawer:
+            with ui.column().classes('w-full h-full gap-0 flex-nowrap'):
+                with ui.row().classes('w-full items-center gap-1 h-11 pl-4 pr-2 '
+                                      'border-b border-white/5 flex-nowrap'):
+                    ui.label(t('Activity', 'Actividad')) \
+                        .classes('text-xs font-semibold uppercase tracking-[.08em] '
+                                 'text-gray-400 grow')
+                    ui.button(t('Mark read', 'Marcar leído'), on_click=self.mark_read) \
+                        .props('flat dense no-caps size=sm color=grey-6')
+                    ui.button(icon='close', on_click=self.drawer.hide) \
+                        .props('flat dense round size=sm color=grey-5')
+                with ui.element('div').classes('w-full grow overflow-auto py-2'):
+                    self._feed()
+                with ui.row().classes('w-full items-center gap-1.5 px-4 py-2.5 border-t '
+                                      'border-white/5 text-xs text-gray-500 cursor-pointer '
+                                      'hover:text-gray-300 flex-nowrap') as foot:
+                    ui.icon('description', size='xs')
+                    ui.label(t('Open the full log', 'Abrir registro completo'))
+                foot.on('click', open_log_file)
+        self.drawer.on_value_change(self._on_toggle)
+
+    # -- state ------------------------------------------------------------- #
+    @property
+    def is_open(self) -> bool:
+        return bool(self.drawer.value)
+
+    def unread(self) -> int:
+        return sum(1 for e in self.monitor.events if e['ts'] > self.read_ts)
+
+    def toggle(self) -> None:
+        self.drawer.toggle()
+
+    def mark_read(self) -> None:
+        self.read_ts = time.time()
+        self._feed.refresh()
+
+    def tick(self) -> None:
+        """Called by the page timer: redraw the list when something new arrived."""
+        events = self.monitor.events
+        seen = (events[-1]['ts'], len(events)) if events else None
+        if seen != self._seen:
+            self._seen = seen
+            self._feed.refresh()
+
+    def _on_toggle(self, e) -> None:
+        if e.value:
+            self._feed.refresh()   # fresh "ago" texts on opening
+        else:
+            self.mark_read()
+
+    # -- rendering ------------------------------------------------------------ #
+    def _render(self) -> None:
+        events = list(self.monitor.events)[-_FEED_LENGTH:][::-1]
+        if not events:
+            ui.label(t('Nothing has happened yet', 'Todavía no ha pasado nada')) \
+                .classes('text-xs text-gray-500 px-4 py-2')
+            return
+        new = [e for e in events if e['ts'] > self.read_ts]
+        old = [e for e in events if e['ts'] <= self.read_ts]
+        if new:
+            ui.label(t('Since you left · {}', 'Desde que te fuiste · {}').format(len(new))) \
+                .classes('text-[11px] text-gray-500 px-4 pt-1.5 pb-1')
+            for ev in new:
+                self._item(ev, unread=True)
+        if old:
+            ui.label(t('Earlier', 'Antes') if new else t('Recent', 'Reciente')) \
+                .classes('text-[11px] text-gray-500 px-4 pt-3 pb-1')
+            for ev in old:
+                self._item(ev, unread=False)
+
+    @staticmethod
+    def _item(ev: dict, unread: bool) -> None:
+        icon, color = _EVENT_STYLE.get(ev['kind'], ('info', 'text-gray-500'))
+        marker = 'border-amber-500 bg-white/[.02]' if unread else 'border-transparent'
+        with ui.element('div').classes(f'w-full flex gap-2.5 px-4 py-2 border-l-2 {marker}'):
+            ui.icon(icon, size='xs').classes(f'{color} mt-0.5 flex-none')
+            with ui.column().classes('grow min-w-0 gap-0.5'):
+                with ui.row().classes('w-full items-baseline gap-2 flex-nowrap'):
+                    ui.label(ev.get('who') or t('system', 'sistema')) \
+                        .classes('text-xs font-semibold truncate grow min-w-0'
+                                 + ('' if unread else ' text-gray-300'))
+                    ui.label(tools.human_ago(ev['ts'])) \
+                        .classes('font-mono text-[10px] text-gray-500 whitespace-nowrap')
+                ui.label(ev['text']).classes('text-xs leading-snug line-clamp-2 '
+                                             + ('text-gray-400' if unread else 'text-gray-500'))
+
+
+def build_activity(monitor: Monitor) -> ActivityFeed:
+    """Create the activity drawer for this page (call it at page level, not in a tab)."""
+    return ActivityFeed(monitor)
+
+
+def _status_chip(s: Streamer, recording: bool) -> None:
+    base = 'text-[11px] font-semibold tracking-wide px-2 py-0.5 rounded whitespace-nowrap flex-none '
+    if recording:
+        ui.label('● ' + status_label(Status.RECORDING)[0]).classes(base + 'bg-primary text-white')
+    elif s.status is Status.ONLINE:
+        ui.label('● ' + status_label(s.status)[0]) \
+            .classes(base + 'border border-green-500/45 bg-green-500/10 text-green-400')
+    elif s.status is Status.OFFLINE:
+        ui.label(status_label(s.status)[0]).classes(base + 'bg-white/5 text-gray-400')
+    else:
+        ui.label(status_label(s.status)[0]) \
+            .classes(base + 'border border-dashed border-white/20 text-gray-500')
+
+
+def _result_line(s: Streamer) -> None:
+    """Last outcome, always rendered so tiles with and without one line up."""
+    text = _subtitle(s)
+    with ui.row().classes('w-full items-center gap-1 flex-nowrap min-h-4'):
+        if s.last_error and not s.last_result:
+            ui.icon('warning', size='14px').classes('text-amber-500 flex-none')
+        elif s.last_result:
+            ui.icon('check_circle', size='14px').classes('text-gray-500 flex-none')
+        ui.label(text).classes('text-xs text-gray-500 truncate min-w-0').tooltip(text)
+
+
 def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -> None:
     rec = monitor.recordings.get(s.key)
-    label, color = status_label(s.status)
 
     async def do_record() -> None:
         # notify before awaiting: start_recording resolves stream URLs and is slow
@@ -300,65 +447,66 @@ def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -
                 ui.button(t('Close', 'Cerrar'), on_click=d.close).props('flat')
         d.open()
 
-    border = ' outline outline-1 outline-red-800/60' if rec else ''
-    with ui.card().classes('w-full p-2.5 gap-1.5' + border).props('flat bordered'):
-        with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
-            fg = '#111' if s.platform == 'kick' else 'white'
-            ui.badge(s.platform).style(
-                f'background-color: {PLATFORM_COLORS.get(s.platform, "#666")}; '
-                f'color: {fg}').classes('flex-none')
+    border = ' border-rose-600/60' if rec else ''
+    with ui.card().classes('w-full p-3 gap-2 rounded-[10px]' + border).props('flat bordered'):
+        with ui.row().classes('w-full items-center gap-2 flex-nowrap min-w-0'):
+            tag, colour = _PLATFORM_TAG.get(s.platform, (s.platform[:2].upper(), '#9ca3af'))
+            ui.label(tag).classes('font-mono text-[10px] font-semibold tracking-wide rounded '
+                                  'px-1 leading-4 flex-none') \
+                .style(f'color: {colour}; border: 1px solid {colour}66')
             ui.link(s.username, s.url, new_tab=True) \
-                .classes('text-sm font-medium no-underline hover:underline '
+                .classes('text-sm font-semibold no-underline hover:underline '
                          '!text-gray-100 truncate grow min-w-0')
-            ui.badge(label).props(f'color={color}').classes('whitespace-nowrap flex-none')
+            _status_chip(s, rec is not None)
         if rec:
-            refresh_frame = live_preview(rec, extra_classes='rounded-lg')
+            refresh_frame = live_preview(rec)
         elif s.is_live and (still := thumbnail_url(s.platform, s.username)):
             # keyed by the broadcast start, so redrawing the tile reuses the cached still
-            live_thumbnail(still, int(s.live_since or s.last_check), extra_classes='rounded-lg')
+            live_thumbnail(still, int(s.live_since or s.last_check))
         timeline = ui.label(_timeline_text(s)).classes('text-xs text-gray-400 truncate w-full')
         timeline_labels[s.key] = (timeline, s)
-        with ui.element('div').classes('w-full min-h-[1rem]'):
-            if rec:
-                live = ui.label().classes('text-xs font-mono text-red-400 truncate w-full')
+        if rec:
+            live = ui.label().classes('text-xs font-mono text-rose-400 truncate w-full min-h-4')
 
-                def update_live(rec=rec, live=live) -> None:
-                    live.set_text(f'⏺ {tools.human_duration(rec.elapsed)} · '
-                                  f'{tools.human_size(rec.size)} · {state_label(rec.state)}')
-                    refresh_frame()
+            def update_live(rec=rec, live=live) -> None:
+                live.set_text(f'{tools.human_duration(rec.elapsed)} · '
+                              f'{tools.human_size(rec.size)} · {state_label(rec.state)}')
+                refresh_frame()
 
-                update_live()
-                ui.timer(1.0, update_live)
-            else:
-                sub = _subtitle(s)
-                if sub:
-                    ui.label(sub).classes('text-xs text-gray-500 truncate w-full') \
-                        .tooltip(sub)
-        with ui.row().classes('w-full items-center gap-0 flex-nowrap'):
-            if rec:
-                ui.button(icon='stop', on_click=do_stop).props('round flat dense color=red') \
-                    .tooltip(t('Stop and save', 'Detener y guardar'))
-            else:
-                ui.button(icon='fiber_manual_record', on_click=do_record) \
-                    .props('round flat dense color=red') \
-                    .tooltip(t('Record now', 'Grabar ahora'))
-                ui.button(icon='refresh', on_click=do_check).props('round flat dense') \
+            update_live()
+            ui.timer(1.0, update_live)
+        else:
+            _result_line(s)
+        with ui.row().classes('w-full items-center gap-2 flex-nowrap mt-0.5'):
+            with ui.button_group().props('flat').classes('bg-white/5 rounded-md p-0.5'):
+                if rec:
+                    ui.button(icon='stop', on_click=do_stop) \
+                        .props('flat dense size=sm color=primary').classes('bg-rose-600/15') \
+                        .tooltip(t('Stop and save', 'Detener y guardar'))
+                else:
+                    # red only on hover: the grid should not shout red on every tile
+                    ui.button(icon='fiber_manual_record', on_click=do_record) \
+                        .props('flat dense size=sm color=grey-5').classes('hover:text-rose-500') \
+                        .tooltip(t('Record now', 'Grabar ahora'))
+                ui.button(icon='refresh', on_click=do_check) \
+                    .props('flat dense size=sm color=grey-5') \
                     .tooltip(t('Check status', 'Comprobar estado'))
-            with ui.button(icon='more_vert').props('round flat dense'):
-                with ui.menu():
-                    ui.menu_item(t('View log', 'Ver registro'), on_click=show_log)
-                    ui.menu_item(t('Open its recordings folder',
-                                   'Abrir su carpeta de grabaciones'), on_click=open_folder)
-                    ui.menu_item(t('Copy channel URL', 'Copiar URL del canal'),
-                                 on_click=lambda: copy_to_clipboard(
-                                     s.url, t('URL copied', 'URL copiada')))
-                    ui.menu_item(t('Remove from the list', 'Quitar de la lista'),
-                                 on_click=do_remove)
+                with ui.button(icon='more_horiz').props('flat dense size=sm color=grey-5'):
+                    with ui.menu():
+                        ui.menu_item(t('View log', 'Ver registro'), on_click=show_log)
+                        ui.menu_item(t('Open its recordings folder',
+                                       'Abrir su carpeta de grabaciones'), on_click=open_folder)
+                        ui.menu_item(t('Copy channel URL', 'Copiar URL del canal'),
+                                     on_click=lambda: copy_to_clipboard(
+                                         s.url, t('URL copied', 'URL copiada')))
+                        ui.menu_item(t('Remove from the list', 'Quitar de la lista'),
+                                     on_click=do_remove)
             ui.space()
+            ui.label(t('Auto-record', 'Auto-grabar')).classes('text-xs text-gray-500')
             ui.switch(value=s.auto_record,
                       on_change=lambda e: (setattr(s, 'auto_record', e.value),
                                            monitor.persist())) \
-                .props('dense size=sm') \
+                .props('dense size=sm color=grey-3 keep-color') \
                 .tooltip(t('Auto-record when it goes live',
                            'Auto-grabar cuando esté en vivo'))
 
@@ -389,7 +537,7 @@ def _subtitle(s: Streamer) -> str:
     if s.last_result:
         parts.append(s.last_result)
     elif s.last_error:
-        parts.append(f'⚠ {s.last_error[:120]}')
+        parts.append(s.last_error[:120])
     remaining = s.cooldown_until - time.time()
     if remaining > 90:
         parts.append(t('auto paused {} min', 'auto en pausa {} min')

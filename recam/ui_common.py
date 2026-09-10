@@ -47,14 +47,14 @@ def live_preview(rec, extra_classes: str = ''):
     as a cache buster (.thumbs lives under the recordings root, so the /media
     route serves it).
     """
-    with ui.element('div').classes('relative w-full h-28 bg-red-950/40 flex '
-                                   'items-center justify-center overflow-hidden '
+    with ui.element('div').classes('relative w-full aspect-video rounded-md bg-red-950/40 '
+                                   'flex items-center justify-center overflow-hidden '
                                    + extra_classes):
-        image = ui.image('').classes('w-full h-full object-cover')
+        image = ui.image('').classes('absolute inset-0 w-full h-full object-cover')
         image.set_visibility(False)
         placeholder = ui.icon('fiber_manual_record', size='md').classes('text-red-500')
-        ui.label('● REC').classes('absolute top-1 left-1 text-[10px] font-medium '
-                                  'bg-red-600/90 px-1.5 py-0.5 rounded z-10')
+        ui.label('● REC').classes('absolute top-1.5 left-1.5 text-[10px] font-bold '
+                                  'tracking-wider bg-rose-600 px-1.5 rounded z-10')
     seen = {'mtime': 0}
 
     def refresh_frame() -> None:
@@ -75,18 +75,19 @@ def live_thumbnail(url: str, cache_key: int, extra_classes: str = '') -> None:
     browser reuses the copy across redraws of the tile, and a new broadcast gets
     a fresh one. Deliberately not refreshed on a timer.
     """
-    with ui.element('div').classes('relative w-full h-28 bg-green-950/40 flex '
-                                   'items-center justify-center overflow-hidden '
+    with ui.element('div').classes('relative w-full aspect-video rounded-md bg-green-950/40 '
+                                   'flex items-center justify-center overflow-hidden '
                                    + extra_classes):
-        image = ui.image(f'{url}?t={cache_key}').classes('w-full h-full object-cover')
+        image = ui.image(f'{url}?t={cache_key}') \
+            .classes('absolute inset-0 w-full h-full object-cover')
         placeholder = ui.icon('sensors', size='md').classes('text-green-500')
         placeholder.set_visibility(False)
         # a still that fails to load shows the icon rather than a broken frame
         image.on('error', lambda: (image.set_visibility(False),
                                    placeholder.set_visibility(True)))
         ui.label(t('● LIVE', '● EN VIVO')) \
-            .classes('absolute top-1 left-1 text-[10px] font-medium '
-                     'bg-green-700/90 px-1.5 py-0.5 rounded z-10')
+            .classes('absolute top-1.5 left-1.5 text-[10px] font-bold tracking-wider '
+                     'bg-green-700 px-1.5 rounded z-10')
 
 
 def open_log_file() -> None:

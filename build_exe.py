@@ -69,6 +69,8 @@ def main() -> None:
     freeze()
 
     shutil.copy2(ROOT / 'recam.ico', DIST / 'recam.ico')
+    if (ROOT / 'mascot.png').exists():   # the About card's avatar
+        shutil.copy2(ROOT / 'mascot.png', DIST / 'mascot.png')
     src_ffmpeg = ROOT / 'ffmpeg'
     if src_ffmpeg.is_dir():
         target = DIST / 'ffmpeg'

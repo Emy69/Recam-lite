@@ -34,13 +34,16 @@ class Monitor:
         # a short history of what happened, for the panel's activity feed
         self.events: deque[dict] = deque(maxlen=50)
 
-    def _event(self, kind: str, text: str) -> None:
-        # a platform-wide problem (like a 429 hold) hits many channels at once;
-        # don't let it flood the feed with identical lines
-        if self.events and self.events[-1]['text'] == text \
-                and time.time() - self.events[-1]['ts'] < 120:
+    def _event(self, kind: str, text: str, who: str = '') -> None:
+        """Add a line to the activity feed. `who` is the channel it is about; a
+        platform-wide note (like a 429 hold) leaves it empty."""
+        # a platform-wide problem hits many channels at once; don't let it flood
+        # the feed with identical lines
+        last = self.events[-1] if self.events else None
+        if last and last['text'] == text and last.get('who', '') == who \
+                and time.time() - last['ts'] < 120:
             return
-        self.events.append({'ts': time.time(), 'kind': kind, 'text': text})
+        self.events.append({'ts': time.time(), 'kind': kind, 'who': who, 'text': text})
 
     async def start(self) -> None:
         self.client = httpx.AsyncClient(headers=platforms.REQUEST_HEADERS, timeout=15,
@@ -146,8 +149,8 @@ class Monitor:
                                         'no se lanzó (emisión cifrada)'), str(exc),
                        ENCRYPTED_COOLDOWN)
             streamer.set_status(Status.ONLINE)   # it is live, we just cannot read it
-            self._event('fail', t('{}: encrypted stream, not recordable',
-                                  '{}: emisión cifrada, no grabable').format(streamer.username))
+            self._event('fail', t('encrypted stream, not recordable',
+                                  'emisión cifrada, no grabable'), streamer.username)
             logbook.event(f'NOT RECORDABLE  {streamer.username} ({streamer.platform}): {exc}')
             return None
         except platforms.RateLimited as exc:
@@ -173,13 +176,12 @@ class Monitor:
                        t('Could not launch the capture: {}',
                          'No se pudo lanzar la grabación: {}').format(exc),
                        self.cfg.poll_seconds)
-            self._event('fail', t('{}: failed to launch the capture',
-                                  '{}: error al lanzar la grabación').format(streamer.username))
+            self._event('fail', t('failed to launch the capture',
+                                  'error al lanzar la grabación'), streamer.username)
             logbook.event(f'LAUNCH ERROR  {streamer.username} '
                           f'({streamer.platform}): {exc!r}')
             return None
-        self._event('start', t('Recording {} ({})', 'Grabando a {} ({})')
-                    .format(streamer.username, streamer.platform))
+        self._event('start', t('recording started', 'grabación iniciada'), streamer.username)
         self.library.bump()   # show the "recording" card right away
         return rec
 
@@ -188,10 +190,10 @@ class Monitor:
         self.library.active_paths.difference_update({rec.ts_path, rec.mp4_path})
         config_mod.save_streamers(self.streamers)   # the channel just left the live group
         if saved:
-            self._event('saved', f'{rec.streamer.username}: {rec.streamer.last_result}')
+            self._event('saved', rec.streamer.last_result, rec.streamer.username)
             self.library.bump()
         else:
-            self._event('fail', f'{rec.streamer.username}: {rec.streamer.last_error}')
+            self._event('fail', rec.streamer.last_error, rec.streamer.username)
 
     async def stop_recording(self, streamer: Streamer) -> None:
         rec = self.recordings.get(streamer.key)
