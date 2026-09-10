@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import os
@@ -7,7 +8,7 @@ import urllib.parse
 
 from nicegui import ui
 
-from . import logbook
+from . import logbook, tools
 from .i18n import t
 
 
@@ -88,6 +89,56 @@ def live_thumbnail(url: str, cache_key: int, extra_classes: str = '') -> None:
         ui.label(t('● LIVE', '● EN VIVO')) \
             .classes('absolute top-1.5 left-1.5 text-[10px] font-bold tracking-wider '
                      'bg-green-700 px-1.5 rounded z-10')
+
+
+def ffmpeg_downloader(on_done) -> None:
+    """The download button with its progress, for when ffmpeg/ffprobe are missing.
+
+    Shared by Settings and the Panel banner; `on_done` runs after a successful
+    install (typically a refresh of whatever showed the button).
+    """
+    with ui.row().classes('items-center gap-2.5 flex-nowrap'):
+        button = ui.button(t('Download ffmpeg', 'Descargar ffmpeg'), icon='download') \
+            .props('unelevated dense no-caps no-wrap color=primary')
+        status = ui.label().classes('font-mono text-xs text-gray-400 whitespace-nowrap')
+    bar = ui.linear_progress(0, size='4px', show_value=False, color='primary') \
+        .props('track-color=grey-9 rounded').classes('w-[360px] max-w-full')
+    bar.set_visibility(False)
+
+    async def download() -> None:
+        progress = {'done': 0, 'total': 0, 'stage': 'download'}
+        button.props('loading')
+        bar.set_visibility(True)
+
+        def paint() -> None:
+            if progress['stage'] == 'download':
+                total = progress['total']
+                if total:
+                    bar.set_value(progress['done'] / total)
+                status.set_text(t('{} of {}', '{} de {}').format(
+                    tools.human_size(progress['done']),
+                    tools.human_size(total) if total else '?'))
+            else:
+                bar.set_value(1)
+                status.set_text(t('Unpacking…', 'Descomprimiendo…'))
+
+        painter = ui.timer(0.3, paint)
+        try:
+            await asyncio.to_thread(tools.download_ffmpeg, progress)
+        except Exception as exc:
+            painter.cancel()
+            button.props(remove='loading')
+            bar.set_visibility(False)
+            status.set_text('')
+            notify(t('Download failed: {}', 'La descarga falló: {}').format(exc),
+                   type='negative')
+            return
+        painter.cancel()
+        notify(t('ffmpeg and ffprobe installed in {}', 'ffmpeg y ffprobe instalados en {}')
+               .format(tools.TOOLS_DIR), type='positive')
+        on_done()
+
+    button.on_click(download)
 
 
 def open_log_file() -> None:

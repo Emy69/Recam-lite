@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import urllib.parse
 from datetime import datetime
 
@@ -46,7 +47,18 @@ _PLAYER_JS = '''
     v.addEventListener('loadedmetadata', () => {
         try {
             const t = parseFloat(localStorage.getItem('rb-pos:' + v.currentSrc));
-            if (t && t > 5 && t < v.duration - 10) v.currentTime = t;
+            if (t && t > 5 && t < v.duration - 10) {
+                v.currentTime = t;
+                // a short note over the video, gone after 3 s
+                const b = document.getElementById('rb-resume');
+                if (b) {
+                    const s = Math.floor(t), m = Math.floor(s / 60), h = Math.floor(m / 60);
+                    const mm = h ? h + ':' + String(m % 60).padStart(2, '0') : String(m);
+                    b.textContent = __RESUMED__ + ' · ' + mm + ':' + String(s % 60).padStart(2, '0');
+                    b.classList.remove('hidden');
+                    setTimeout(() => b.classList.add('hidden'), 3000);
+                }
+            }
         } catch (e) {}
     });
     v.addEventListener('timeupdate', () => {
@@ -71,47 +83,112 @@ def build(library: Library, monitor=None):
     all_label = t('All', 'Todos')
 
     # one reusable player: closing it only pauses, because destroying elements from
-    # their own 'hide' event breaks the client session
-    with ui.dialog() as player_dialog, ui.card().tight().classes('w-[880px] max-w-full'):
-        player_video = ui.video('', autoplay=True).props('id=rb-player').classes('w-full')
-        with ui.row().classes('w-full items-center gap-1 p-2 flex-nowrap'):
-            ui.button(icon='replay_10',
-                      on_click=lambda: ui.run_javascript(
-                          "const v=document.getElementById('rb-player');"
-                          'if (v) v.currentTime -= 10;')) \
-                .props('flat round dense').tooltip(t('Back 10 s', 'Atrás 10 s'))
-            ui.button(icon='forward_10',
-                      on_click=lambda: ui.run_javascript(
-                          "const v=document.getElementById('rb-player');"
-                          'if (v) v.currentTime += 10;')) \
-                .props('flat round dense').tooltip(t('Forward 10 s', 'Adelante 10 s'))
+    # their own 'hide' event breaks the client session. Native controls are off;
+    # the card draws its own row and polls the <video> while the dialog is open.
+    playing: dict = {'item': None, 'duration': 0.0, 'paused': False}
 
-            def cycle_speed() -> None:
-                speeds = [1.0, 1.25, 1.5, 1.75, 2.0]
-                idx = speeds.index(state['speed']) if state['speed'] in speeds else 0
-                state['speed'] = speeds[(idx + 1) % len(speeds)]
-                speed_btn.set_text(f'{state["speed"]:g}×')
-                ui.run_javascript("const v=document.getElementById('rb-player');"
-                                  f"if (v) v.playbackRate = {state['speed']};")
+    def player_js(code: str) -> None:
+        ui.run_javascript("const v = document.getElementById('rb-player'); if (v) {" + code + '}')
 
-            speed_btn = ui.button('1×', on_click=cycle_speed) \
-                .props('flat dense no-caps') \
-                .tooltip(t('Playback speed', 'Velocidad de reproducción'))
-            player_title = ui.label('').classes('text-sm truncate grow text-right')
-            ui.button(t('Close', 'Cerrar'), on_click=player_dialog.close).props('flat dense')
-    player_dialog.on('hide', lambda: player_video.run_method('pause'))
+    with ui.dialog() as player_dialog, \
+            ui.card().tight().classes('w-[880px] max-w-full rounded-xl overflow-hidden'):
+        with ui.row().classes('w-full items-center gap-2.5 pl-3.5 pr-2 py-2 flex-nowrap min-w-0'):
+            player_title = ui.label('').classes('font-semibold truncate grow min-w-0')
+            player_meta = ui.label('').classes('font-mono text-[11px] text-gray-500 whitespace-nowrap')
+            ui.button(icon='close', on_click=player_dialog.close) \
+                .props('flat round dense color=grey-5')
+        with ui.element('div').classes('relative w-full bg-black'):
+            player_video = ui.video('', autoplay=True, controls=False) \
+                .props('id=rb-player').classes('w-full block')
+            ui.label('').props('id=rb-resume') \
+                .classes('absolute bottom-3 left-3.5 text-[11px] text-gray-300 bg-black/60 '
+                         'px-2 py-0.5 rounded hidden')
+        with ui.column().classes('w-full gap-1.5 px-3.5 pt-2.5 pb-3'):
+            with ui.row().classes('w-full items-center gap-2.5 flex-nowrap'):
+                time_now = ui.label('0:00').classes('font-mono text-[11px] text-gray-400 w-10')
+                seek = ui.slider(min=0, max=1, step=0.5, value=0) \
+                    .props('dense color=white track-color=grey-8 thumb-size=12px').classes('grow')
+                time_total = ui.label('0:00') \
+                    .classes('font-mono text-[11px] text-gray-500 w-10 text-right')
+            with ui.row().classes('w-full items-center gap-1 flex-nowrap'):
+                ui.button(icon='replay_10', on_click=lambda: player_js('v.currentTime -= 10')) \
+                    .props('flat round color=grey-3').tooltip(t('Back 10 s', 'Atrás 10 s'))
+                play_btn = ui.button(icon='pause',
+                                     on_click=lambda: player_js('v.paused ? v.play() : v.pause()')) \
+                    .props('round unelevated color=white text-color=dark') \
+                    .classes('w-[38px] h-[38px]')
+                ui.button(icon='forward_10', on_click=lambda: player_js('v.currentTime += 10')) \
+                    .props('flat round color=grey-3').tooltip(t('Forward 10 s', 'Adelante 10 s'))
+                ui.element('div').classes('w-px h-5 bg-white/10 mx-1.5')
+                ui.icon('volume_up', size='xs').classes('text-gray-400')
+                volume = ui.slider(min=0, max=1, step=0.05, value=1) \
+                    .props('dense color=grey-4 track-color=grey-8 thumb-size=10px') \
+                    .classes('w-[72px]')
+                ui.space()
+                speed = ui.toggle({1: '1×', 1.25: '1.25×', 1.5: '1.5×', 2: '2×'}, value=1,
+                                  on_change=lambda e: player_js(f'v.playbackRate = {e.value}')) \
+                    .props('dense no-caps unelevated toggle-color=grey-8 text-color=grey-5 '
+                           'toggle-text-color=white') \
+                    .classes('bg-white/5 rounded-md font-mono')
+                ui.button(icon='open_in_new',
+                          on_click=lambda: playing['item'] and library.open_external(playing['item'])) \
+                    .props('flat round dense color=grey-5') \
+                    .tooltip(t('Open with the system player', 'Abrir con el reproductor del sistema'))
+                ui.button(icon='fullscreen',
+                          on_click=lambda: player_js('if (v.requestFullscreen) v.requestFullscreen()')) \
+                    .props('flat round dense color=grey-5') \
+                    .tooltip(t('Full screen', 'Pantalla completa'))
+        # user-driven only: Quasar emits 'change' on release, never for values we set
+        seek.on('change', lambda e: player_js(f'v.currentTime = {float(e.args)}'))
+        volume.on('change', lambda e: player_js(f'v.volume = {float(e.args)}'))
+
+    async def poll_player() -> None:
+        try:
+            state = await ui.run_javascript(
+                "(() => { const v = document.getElementById('rb-player');"
+                ' return v ? {t: v.currentTime || 0, d: v.duration || 0, p: v.paused, '
+                'vol: v.volume} : null; })()', timeout=1.0)
+        except Exception:
+            return
+        if not state:
+            return
+        if state['d'] and state['d'] != playing['duration']:
+            playing['duration'] = state['d']
+            seek.props(f'max={state["d"]}')
+            time_total.set_text(tools.human_duration(state['d']))
+        seek.value = state['t']
+        time_now.set_text(tools.human_duration(state['t']))
+        if state['p'] != playing['paused']:
+            playing['paused'] = state['p']
+            play_btn.props('icon=play_arrow' if state['p'] else 'icon=pause')
+        if abs((volume.value or 0) - state['vol']) > 0.02:
+            volume.value = state['vol']
+
+    player_timer = ui.timer(0.5, poll_player, active=False)
+
+    def on_player_hide() -> None:
+        player_video.run_method('pause')
+        player_timer.active = False
+
+    player_dialog.on('hide', on_player_hide)
 
     def play_item(item: LibraryItem) -> None:
-        state['speed'] = 1.0
-        speed_btn.set_text('1×')
+        playing.update(item=item, duration=0.0, paused=False)
+        speed.value = 1
+        seek.value = 0
+        play_btn.props('icon=pause')
         # (re)arm the client-side handlers on every open; the guard inside makes
         # this idempotent, and doing it here guarantees the client is connected
-        ui.run_javascript(_PLAYER_JS)
-        ui.run_javascript("const v=document.getElementById('rb-player');"
-                          'if (v) v.playbackRate = 1;')
+        ui.run_javascript(_PLAYER_JS.replace('__RESUMED__', json.dumps(
+            t('Resumed where you left off', 'Retomado donde lo dejaste'))))
+        player_js('v.playbackRate = 1')
         player_title.set_text(item.path.name)
+        player_meta.set_text(' · '.join(part for part in (
+            tools.human_duration(item.duration) if item.duration else '',
+            tools.human_size(item.size)) if part))
         player_video.set_source('/media/' + urllib.parse.quote(item.rel))
         player_dialog.open()
+        player_timer.active = True
 
     def visible_items() -> list[LibraryItem]:
         items = [i for i in library.items
@@ -476,7 +553,7 @@ def _video_tile(library: Library, item: LibraryItem, rescan, play_item,
                     return   # less noise while picking: no per-video actions
                 if item.is_ts:
                     ui.button(icon='auto_fix_high', on_click=convert) \
-                        .props('flat round dense size=sm color=grey-5') \
+                        .props('flat round dense size=sm color=amber') \
                         .tooltip(t('Convert to MP4 (raw capture)',
                                    'Convertir a MP4 (grabación sin procesar)'))
                 with ui.button(icon='more_horiz').props('flat round dense size=sm color=grey-5'):

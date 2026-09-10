@@ -8,13 +8,13 @@ import time
 from nicegui import ui
 
 from . import config as config_mod
-from . import tools
+from . import tools, ui_tutorial
 from .i18n import t
 from .models import Status, Streamer, state_label, status_label
 from .monitor import Monitor
-from .platforms import thumbnail_url
-from .ui_common import (copy_to_clipboard, live_preview, live_thumbnail, notify,
-                        open_log_file)
+from .platforms import clear_rate_limit, rate_limit_remaining, thumbnail_url
+from .ui_common import (copy_to_clipboard, ffmpeg_downloader, live_preview, live_thumbnail,
+                        notify, open_log_file)
 
 _EVENT_STYLE = {
     'start': ('fiber_manual_record', 'text-rose-600'),
@@ -95,11 +95,16 @@ def build(monitor: Monitor):
         tiles.clear()
         last_layout[0] = layout_signature()
         if not monitor.streamers:
-            with ui.card().classes('w-full items-center p-10').props('flat bordered'):
-                ui.icon('videocam_off', size='xl').classes('text-gray-600')
-                ui.label(t('Add your first channel by pasting its URL above',
-                           'Añade tu primer canal pegando su URL arriba')) \
-                    .classes('text-gray-500')
+            with ui.card().classes('w-full p-4 gap-2.5 rounded-[10px]').props('flat bordered'):
+                with ui.row().classes('items-center gap-2.5'):
+                    ui.icon('videocam_off', size='sm').classes('text-gray-500')
+                    ui.label(t('No channels yet', 'Aún no hay canales')).classes('font-semibold')
+                ui.label(t('Paste a Chaturbate channel URL above and press Add. It gets '
+                           'checked on the next cycle.',
+                           'Pega arriba la URL de un canal de Chaturbate y pulsa Añadir. Se '
+                           'comprueba en el próximo ciclo.')).classes('text-xs text-gray-400')
+                ui.button(t('Open the tutorial', 'Abrir el tutorial'), icon='school',
+                          on_click=ui_tutorial.show).props('outline dense no-caps color=grey-5')
             return
         live, rest = split_streamers()
         section(t('Live now', 'En vivo ahora'), 'bg-green-500', live,
@@ -188,6 +193,41 @@ def build(monitor: Monitor):
                         .props('track-color=grey-9').classes('w-14')
                 check_row.set_visibility(False)
 
+        # two situations worth a line above the grid: the site holding us off,
+        # and the recorder missing its tools
+        with ui.row().classes('w-full items-center gap-2.5 rounded-lg bg-rose-600/10 border '
+                              'border-rose-600/35 px-3 py-2 flex-nowrap') as net_banner:
+            ui.icon('wifi_off', size='xs').classes('text-rose-400 flex-none')
+            with ui.column().classes('grow min-w-0 gap-0'):
+                ui.label(t('Network error', 'Error de red')).classes('text-sm font-semibold')
+                net_text = ui.label().classes('text-xs text-gray-400')
+
+            async def retry_now() -> None:
+                clear_rate_limit('chaturbate')
+                await check_all()
+
+            ui.button(t('Retry now', 'Reintentar ahora'), icon='refresh', on_click=retry_now) \
+                .props('flat dense no-caps no-wrap').classes('bg-white/5 shrink-0')
+        net_banner.set_visibility(False)
+
+        def tools_ready() -> None:
+            tools_banner.set_visibility(False)
+            streamer_table.refresh()   # the record buttons come back enabled
+
+        with ui.row().classes('w-full items-center gap-2.5 rounded-lg bg-amber-500/10 border '
+                              'border-amber-500/35 px-3 py-2 flex-nowrap') as tools_banner:
+            ui.icon('build', size='xs').classes('text-amber-500 flex-none')
+            with ui.column().classes('grow min-w-0 gap-0'):
+                ui.label(t('ffmpeg is missing', 'Falta ffmpeg')).classes('text-sm font-semibold')
+                ui.label(t('Recordings need ffmpeg and ffprobe. Download them here (about '
+                           '110 MB, no admin rights) or run: winget install Gyan.FFmpeg',
+                           'Para grabar hacen falta ffmpeg y ffprobe. Descárgalos aquí (unos '
+                           '110 MB, sin permisos de administrador) o ejecuta: winget install '
+                           'Gyan.FFmpeg')).classes('text-xs text-gray-400')
+            with ui.column().classes('gap-1 shrink-0 items-end'):
+                ffmpeg_downloader(tools_ready)
+        tools_banner.set_visibility(bool(tools.missing_tools()))
+
         streamer_table()
 
     def retext(label, text: str) -> None:
@@ -210,6 +250,15 @@ def build(monitor: Monitor):
             check_row.set_visibility(True)
         else:
             check_row.set_visibility(False)
+        hold = rate_limit_remaining('chaturbate')
+        if hold > 0:
+            retext(net_text, t('Could not reach chaturbate.com (429 — too many requests). '
+                               'Backing off; retrying in {} min.',
+                               'No se pudo conectar con chaturbate.com (429: demasiadas '
+                               'peticiones). Esperando; reintento en {} min.')
+                   .format(int(hold // 60) + 1))
+        if net_banner.visible != (hold > 0):
+            net_banner.set_visibility(hold > 0)
         sync()
         # the "live for 12 min" lines drift on their own; cheaper to retext than redraw
         for label, s in list(timeline_labels.values()):
@@ -453,7 +502,7 @@ def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -
             tag, colour = _PLATFORM_TAG.get(s.platform, (s.platform[:2].upper(), '#9ca3af'))
             ui.label(tag).classes('font-mono text-[10px] font-semibold tracking-wide rounded '
                                   'px-1 leading-4 flex-none') \
-                .style(f'color: {colour}; border: 1px solid {colour}66')
+                .style(f'color: {colour}; border: 1px solid {colour}66').tooltip(s.platform)
             ui.link(s.username, s.url, new_tab=True) \
                 .classes('text-sm font-semibold no-underline hover:underline '
                          '!text-gray-100 truncate grow min-w-0')
@@ -485,9 +534,14 @@ def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -
                         .tooltip(t('Stop and save', 'Detener y guardar'))
                 else:
                     # red only on hover: the grid should not shout red on every tile
-                    ui.button(icon='fiber_manual_record', on_click=do_record) \
-                        .props('flat dense size=sm color=grey-5').classes('hover:text-rose-500') \
-                        .tooltip(t('Record now', 'Grabar ahora'))
+                    record = ui.button(icon='fiber_manual_record', on_click=do_record) \
+                        .props('flat dense size=sm color=grey-5').classes('hover:text-rose-500')
+                    if tools.missing_tools():
+                        record.props('disable').tooltip(
+                            t('Install ffmpeg first (Settings › Tools)',
+                              'Instala ffmpeg primero (Ajustes › Herramientas)'))
+                    else:
+                        record.tooltip(t('Record now', 'Grabar ahora'))
                 ui.button(icon='refresh', on_click=do_check) \
                     .props('flat dense size=sm color=grey-5') \
                     .tooltip(t('Check status', 'Comprobar estado'))

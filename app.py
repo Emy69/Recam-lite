@@ -10,11 +10,10 @@ import asyncio
 import contextlib
 import json
 import logging
-import webbrowser
 
 from nicegui import app, ui
 
-from recam import (config, i18n, logbook, native_close, status, tray,
+from recam import (config, i18n, logbook, native_close, status, tray, ui_dialogs,
                         ui_library, ui_panel, ui_settings, ui_theme, ui_tutorial)
 from recam.i18n import t
 from recam.library import Library
@@ -167,13 +166,15 @@ def _on_window_closing(_args=None) -> None:
             win.show()
             win.restore()
     rec_count = len(monitor.recordings)
-    warn = (t('{} capture(s) running; closing finalizes and saves them.',
-              'Hay {} grabación(es) en curso; al cerrar se finalizan y se guardan.')
+    warn = (t('{} capture(s) running. Quitting finalizes and saves them first; hiding '
+              'keeps them recording.',
+              '{} grabación(es) en curso. Cerrar del todo las finaliza y guarda primero; '
+              'esconder las mantiene grabando.')
             .format(rec_count) if rec_count else '')
     opened = False
     for entry in _close_dialogs[:]:
         try:
-            entry['warn'].set_text(warn)
+            entry['warn_text'].set_text(warn)
             entry['warn'].set_visibility(bool(warn))
             entry['dialog'].open()
             opened = True
@@ -201,71 +202,12 @@ def index() -> None:
 
     # test-build welcome: shown on every start until the tester opts out
     if getattr(cfg, 'show_beta_notice', True):
-        with ui.dialog() as beta_dialog, ui.card().classes('w-[440px] max-w-full gap-2'):
-            with ui.row().classes('items-center gap-2'):
-                ui.icon('science').classes('text-2xl text-amber-500')
-                ui.label(t('Welcome to the Recam test build',
-                           'Bienvenido a la versión de prueba de Recam')) \
-                    .classes('text-base font-medium')
-            ui.label(t('This is an early test version (v0.0.1). For now it records '
-                       'Chaturbate only, and some things may still break.',
-                       'Esta es una versión de prueba temprana (v0.0.1). Por ahora '
-                       'solo graba Chaturbate, y puede que algo falle todavía.')) \
-                .classes('text-sm')
-            ui.label(t('Anything you can report back — bugs, confusing bits, ideas — '
-                       'is genuinely useful to keep development going. Thank you for '
-                       'testing!',
-                       'Cualquier cosa que puedas contar — fallos, partes confusas, '
-                       'ideas — es realmente útil para seguir con el desarrollo. '
-                       '¡Gracias por probarla!')).classes('text-sm text-gray-400')
-            ui.label(t('Made by {} · feedback and updates:', 'Hecho por {} · feedback y '
-                       'novedades:').format(config.AUTHOR)) \
-                .classes('text-xs text-gray-500')
-            with ui.row().classes('gap-1'):
-                ui.button(t('Join the Discord', 'Únete al Discord'), icon='forum',
-                          on_click=lambda: webbrowser.open(config.LINKS['Discord'])) \
-                    .props('flat dense no-caps color=indigo-4')
-                ui.button('Patreon', icon='favorite',
-                          on_click=lambda: webbrowser.open(config.LINKS['Patreon'])) \
-                    .props('flat dense no-caps color=red')
-            dont_show = ui.checkbox(t("Don't show this again", 'No volver a mostrar esto')) \
-                .props('dense').classes('text-xs')
-
-            def dismiss_beta() -> None:
-                if dont_show.value:
-                    cfg.show_beta_notice = False
-                    config.save(cfg)
-                beta_dialog.close()
-
-            def open_tutorial() -> None:
-                dismiss_beta()
-                ui_tutorial.show()
-
-            with ui.row().classes('w-full justify-end gap-2'):
-                ui.button(t('Open the tutorial', 'Abrir el tutorial'), icon='school',
-                          on_click=open_tutorial).props('outline')
-                ui.button('OK', on_click=dismiss_beta).props('unelevated')
+        beta_dialog = ui_dialogs.beta_notice(cfg, ui_tutorial.show)
         # on_connect, not a timer: an open() pushed before the websocket handshake
         # finishes would be lost and the welcome would never show
         ui.context.client.on_connect(lambda: beta_dialog.open())
 
-    with ui.dialog() as close_dialog, ui.card().classes('w-96'):
-        ui.label(t('Close Recam?', '¿Cerrar Recam?')).classes('text-base font-medium')
-        close_warn = ui.label('').classes('text-xs text-amber-500')
-        if _tray_active['on']:
-            ui.label(t('“Hide” keeps it recording in the background; bring it back '
-                       'from the tray icon.',
-                       '«Esconder» la deja grabando de fondo; se recupera desde el '
-                       'icono de la bandeja.')).classes('text-xs text-gray-500')
-        with ui.row().classes('w-full justify-end gap-2'):
-            ui.button(t('Cancel', 'Cancelar'), on_click=close_dialog.close).props('flat')
-            if _tray_active['on']:
-                ui.button(t('Hide', 'Esconder'), icon='visibility_off',
-                          on_click=lambda: (close_dialog.close(), _hide_to_tray())) \
-                    .props('outline')
-            ui.button(t('Quit for real', 'Cerrar del todo'), icon='power_settings_new', color='red',
-                      on_click=lambda: (close_dialog.close(), _quit_app()))
-    _close_dialogs.append({'dialog': close_dialog, 'warn': close_warn})
+    _close_dialogs.append(ui_dialogs.close_question(_tray_active['on'], _hide_to_tray, _quit_app))
 
     # the activity feed lives in a drawer on the right, toggled from the header
     activity = ui_panel.build_activity(monitor)

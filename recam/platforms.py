@@ -183,6 +183,11 @@ class _HostThrottle:
     def report_ok(self) -> None:
         self._penalty = 0.0
 
+    def release(self) -> None:
+        """Lift the hold early (the user asked to retry right away); the penalty
+        keeps growing if the site answers 429 again."""
+        self._hold_until = 0.0
+
 
 # 0.8 s keeps a full pass over ~20 channels under 20 s; the 429 hold below is the
 # safety net if the site turns out to want more room than that
@@ -196,6 +201,11 @@ def rate_limited(platform: str) -> bool:
 
 def rate_limit_remaining(platform: str) -> float:
     return _CB_THROTTLE.hold_remaining() if platform == 'chaturbate' else 0.0
+
+
+def clear_rate_limit(platform: str) -> None:
+    if platform == 'chaturbate':
+        _CB_THROTTLE.release()
 
 
 _STREAMLINK_QUALITY = {

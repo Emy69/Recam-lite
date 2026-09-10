@@ -16,7 +16,7 @@ from . import config as config_mod
 from .i18n import t
 from .models import Streamer
 from .monitor import Monitor
-from .ui_common import copy_to_clipboard, notify, open_log_file
+from .ui_common import copy_to_clipboard, ffmpeg_downloader, notify, open_log_file
 
 # the icon carries the brand colour; the button itself stays neutral
 _LINK_STYLE = {
@@ -255,7 +255,7 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
                                 'winget install Gyan.FFmpeg',
                                 'Unos 110 MB, sin permisos de administrador. Alternativa: '
                                 'winget install Gyan.FFmpeg')):
-                        _ffmpeg_downloader(tools_card)
+                        ffmpeg_downloader(tools_card.refresh)
                 if tools.IS_FROZEN:
                     ui.label(t('Tool updates ship with new app builds.',
                                'Las actualizaciones de herramientas llegan con nuevas '
@@ -477,49 +477,3 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
     for element in (dir_input, quality, poll, maxc, tmpl, audio_off, lang, lan):
         element.on_value_change(on_change)
     tmpl_preview.set_text(template_preview())
-
-
-def _ffmpeg_downloader(tools_card) -> None:
-    """The download button with its progress, for when ffmpeg/ffprobe are missing."""
-    with ui.row().classes('items-center gap-2.5 flex-nowrap'):
-        button = ui.button(t('Download ffmpeg', 'Descargar ffmpeg'), icon='download') \
-            .props('unelevated dense no-caps no-wrap color=primary')
-        status = ui.label().classes('font-mono text-xs text-gray-400 whitespace-nowrap')
-    bar = ui.linear_progress(0, size='4px', show_value=False, color='primary') \
-        .props('track-color=grey-9 rounded').classes('w-[360px] max-w-full')
-    bar.set_visibility(False)
-
-    async def download() -> None:
-        progress = {'done': 0, 'total': 0, 'stage': 'download'}
-        button.props('loading')
-        bar.set_visibility(True)
-
-        def paint() -> None:
-            if progress['stage'] == 'download':
-                total = progress['total']
-                if total:
-                    bar.set_value(progress['done'] / total)
-                status.set_text(t('{} of {}', '{} de {}').format(
-                    tools.human_size(progress['done']),
-                    tools.human_size(total) if total else '?'))
-            else:
-                bar.set_value(1)
-                status.set_text(t('Unpacking…', 'Descomprimiendo…'))
-
-        painter = ui.timer(0.3, paint)
-        try:
-            await asyncio.to_thread(tools.download_ffmpeg, progress)
-        except Exception as exc:
-            painter.cancel()
-            button.props(remove='loading')
-            bar.set_visibility(False)
-            status.set_text('')
-            notify(t('Download failed: {}', 'La descarga falló: {}').format(exc),
-                   type='negative')
-            return
-        painter.cancel()
-        notify(t('ffmpeg and ffprobe installed in {}', 'ffmpeg y ffprobe instalados en {}')
-               .format(tools.TOOLS_DIR), type='positive')
-        tools_card.refresh()
-
-    button.on_click(download)
