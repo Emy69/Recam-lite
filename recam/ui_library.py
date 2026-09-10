@@ -230,7 +230,10 @@ def build(library: Library, monitor=None):
         for item in items:
             slot(item.streamer or t('No folder', 'Sin carpeta'))['items'].append(item)
 
-        with ui.column().classes('w-full gap-2 mt-1'):
+        # profiles tile up in a grid too; a single filtered profile gets the full width
+        columns = '1fr' if len(order) == 1 else 'repeat(auto-fill, minmax(340px, 1fr))'
+        with ui.element('div').classes('w-full grid gap-2 mt-1 items-start') \
+                .style(f'grid-template-columns: {columns}'):
             for name in order:
                 group = groups[name]
                 vids = group['items']
@@ -248,7 +251,7 @@ def build(library: Library, monitor=None):
                         .props('dense header-class="text-sm font-medium"'):
                     with ui.element('div').classes('w-full grid gap-2 pb-2') \
                             .style('grid-template-columns: '
-                                   'repeat(auto-fill, minmax(200px, 1fr))'):
+                                   'repeat(auto-fill, minmax(150px, 1fr))'):
                         for rec in group['recs']:
                             _recording_tile(rec)
                         for item in vids:
@@ -406,7 +409,7 @@ def _video_tile(library: Library, item: LibraryItem, rescan, play_item,
                 .props('dense keep-color color=red') \
                 .classes('absolute top-1 left-1 z-10 bg-black/60 rounded')
         thumb = ui.element('div').classes(
-            'relative w-full h-28 cursor-pointer overflow-hidden bg-black')
+            'relative w-full h-24 cursor-pointer overflow-hidden bg-black')
         with thumb:
             if item.thumb:
                 ui.image(str(item.thumb)).classes('w-full h-full object-cover')
