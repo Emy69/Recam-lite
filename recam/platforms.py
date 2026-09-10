@@ -4,6 +4,7 @@ import asyncio
 import re
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -62,7 +63,15 @@ def canonical_url(platform: str, username: str) -> str:
     }[platform]
 
 
-async def check_online(client: httpx.AsyncClient, platform: str, username: str) -> Status:
+@dataclass
+class Probe:
+    """What one liveness poll learned about a channel."""
+    status: Status
+    started_at: float = 0.0   # broadcast start the site reported (unix seconds), if any
+    viewers: int = 0
+
+
+async def probe(client: httpx.AsyncClient, platform: str, username: str) -> Probe:
     """Cheap liveness poll against the public web/API. UNKNOWN when the site won't say.
 
     UNKNOWN never blocks anything: channels with auto-record on are attempted anyway
@@ -72,29 +81,50 @@ async def check_online(client: httpx.AsyncClient, platform: str, username: str) 
         if platform == 'twitch':
             r = await client.get(f'https://www.twitch.tv/{username}')
             if r.status_code == 200:
-                return Status.ONLINE if 'isLiveBroadcast' in r.text else Status.OFFLINE
+                return Probe(Status.ONLINE if 'isLiveBroadcast' in r.text else Status.OFFLINE)
         elif platform == 'kick':
             r = await client.get(f'https://kick.com/api/v2/channels/{username}')
             if r.status_code == 200:
-                return Status.ONLINE if r.json().get('livestream') else Status.OFFLINE
+                return Probe(Status.ONLINE if r.json().get('livestream') else Status.OFFLINE)
         elif platform == 'chaturbate':
             if not await _CB_THROTTLE.slot(max_wait=30):
-                return Status.UNKNOWN   # the hold is long; don't queue behind it
+                return Probe(Status.UNKNOWN)   # the hold is long; don't queue behind it
             r = await client.get(f'https://chaturbate.com/api/chatvideocontext/{username}/')
             if r.status_code == 429:
                 _CB_THROTTLE.report_429()
-                return Status.UNKNOWN
+                return Probe(Status.UNKNOWN)
             if r.status_code == 200:
                 _CB_THROTTLE.report_ok()
-                return Status.ONLINE if r.json().get('room_status') == 'public' else Status.OFFLINE
+                data = r.json() or {}
+                live = data.get('room_status') == 'public'
+                # for an offline room this is when its latest broadcast began
+                started = float(data.get('start_timestamp') or 0)
+                viewers = int(data.get('num_viewers') or 0) if live else 0
+                return Probe(Status.ONLINE if live else Status.OFFLINE, started, viewers)
         elif platform == 'stripchat':
             r = await client.get(f'https://stripchat.com/api/front/v2/users/username/{username}')
             if r.status_code == 200:
                 item = (r.json() or {}).get('item') or {}
-                return Status.ONLINE if item.get('isOnline') else Status.OFFLINE
+                return Probe(Status.ONLINE if item.get('isOnline') else Status.OFFLINE)
     except Exception:
         pass
-    return Status.UNKNOWN
+    return Probe(Status.UNKNOWN)
+
+
+async def check_online(client: httpx.AsyncClient, platform: str, username: str) -> Status:
+    """Status-only view of probe(), for callers that need nothing more."""
+    return (await probe(client, platform, username)).status
+
+
+def thumbnail_url(platform: str, username: str) -> str | None:
+    """Public still of a live room, which the site overwrites every few seconds.
+
+    Chaturbate only; the other sites have no unauthenticated equivalent. This host
+    is the one whose certificate the embedded browser accepts (roomimg.* does not).
+    """
+    if platform == 'chaturbate':
+        return f'https://thumb.live.mmcdn.com/riw/{username}.jpg'
+    return None
 
 
 class StreamNotAvailable(Exception):

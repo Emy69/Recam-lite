@@ -59,6 +59,7 @@ class Monitor:
         if recs:
             await asyncio.gather(*(rec.wait_until_finalized() for rec in recs),
                                  return_exceptions=True)
+        config_mod.save_streamers(self.streamers)   # keep last_online across restarts
         if self.client:
             await self.client.aclose()
 
@@ -80,14 +81,25 @@ class Monitor:
         if due:
             await asyncio.gather(*(self._check_one(s) for s in due))
 
+    def _apply_probe(self, streamer: Streamer, probe: platforms.Probe) -> bool:
+        """Fold a poll result into the channel; True when the list is worth saving."""
+        if probe.started_at:
+            streamer.last_broadcast_start = max(streamer.last_broadcast_start,
+                                                probe.started_at)
+        changed = streamer.set_status(probe.status, started_at=probe.started_at)
+        if streamer.is_live:
+            streamer.viewers = probe.viewers
+        return changed
+
     async def _check_one(self, streamer: Streamer) -> None:
         await asyncio.sleep(random.uniform(0, 2))   # spread the requests out a little
-        status = await platforms.check_online(self.client, streamer.platform,
-                                              streamer.username)
+        probe = await platforms.probe(self.client, streamer.platform, streamer.username)
         streamer.last_check = time.time()
         if streamer.key in self.recordings:
             return
-        streamer.status = status
+        if self._apply_probe(streamer, probe):
+            config_mod.save_streamers(self.streamers)
+        status = probe.status
         if not (streamer.auto_record and status in (Status.ONLINE, Status.UNKNOWN)
                 and len(self.recordings) < self.cfg.max_concurrent):
             return
@@ -118,7 +130,7 @@ class Monitor:
             self._drop(streamer, rec, t('not launched (encrypted stream)',
                                         'no se lanzó (emisión cifrada)'), str(exc),
                        ENCRYPTED_COOLDOWN)
-            streamer.status = Status.ONLINE   # it is live, we just cannot read it
+            streamer.set_status(Status.ONLINE)   # it is live, we just cannot read it
             self._event('fail', t('{}: encrypted stream, not recordable',
                                   '{}: emisión cifrada, no grabable').format(streamer.username))
             logbook.event(f'NOT RECORDABLE  {streamer.username} ({streamer.platform}): {exc}')
@@ -159,6 +171,7 @@ class Monitor:
     def _on_finished(self, rec: Recording, saved: bool) -> None:
         self.recordings.pop(rec.streamer.key, None)
         self.library.active_paths.difference_update({rec.ts_path, rec.mp4_path})
+        config_mod.save_streamers(self.streamers)   # the channel just left the live group
         if saved:
             self._event('saved', f'{rec.streamer.username}: {rec.streamer.last_result}')
             self.library.bump()
@@ -171,12 +184,11 @@ class Monitor:
             await rec.stop()
 
     async def manual_check(self, streamer: Streamer) -> Status:
-        status = await platforms.check_online(self.client, streamer.platform,
-                                              streamer.username)
+        probe = await platforms.probe(self.client, streamer.platform, streamer.username)
         streamer.last_check = time.time()
-        if streamer.key not in self.recordings:
-            streamer.status = status
-        return status
+        if streamer.key not in self.recordings and self._apply_probe(streamer, probe):
+            config_mod.save_streamers(self.streamers)
+        return probe.status
 
     def add_streamer(self, text: str) -> Streamer:
         detected = platforms.detect(text)

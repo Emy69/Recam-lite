@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import time
 import urllib.parse
 
 from nicegui import ui
@@ -66,6 +67,31 @@ def live_preview(rec, extra_classes: str = ''):
             placeholder.set_visibility(False)
 
     return refresh_frame
+
+
+def live_thumbnail(url: str, extra_classes: str = ''):
+    """Image area showing the site's own still of a live room we are not recording.
+
+    Returns a bump callable for the caller's timer: it re-requests the still with
+    a fresh cache buster, since the site overwrites the same file every few seconds.
+    """
+    with ui.element('div').classes('relative w-full h-28 bg-green-950/40 flex '
+                                   'items-center justify-center overflow-hidden '
+                                   + extra_classes):
+        image = ui.image(f'{url}?t={int(time.time())}').classes('w-full h-full object-cover')
+        placeholder = ui.icon('sensors', size='md').classes('text-green-500')
+        placeholder.set_visibility(False)
+        # a still that fails to load shows the icon rather than a broken frame
+        image.on('error', lambda: (image.set_visibility(False),
+                                   placeholder.set_visibility(True)))
+        ui.label(t('● LIVE', '● EN VIVO')) \
+            .classes('absolute top-1 left-1 text-[10px] font-medium '
+                     'bg-green-700/90 px-1.5 py-0.5 rounded z-10')
+
+    def bump() -> None:
+        image.set_source(f'{url}?t={int(time.time())}')
+
+    return bump
 
 
 def open_log_file() -> None:

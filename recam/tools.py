@@ -179,6 +179,21 @@ def human_ago(ts: float) -> str:
     return datetime.fromtimestamp(ts).strftime('%d/%m/%Y')
 
 
+def human_span(seconds: float) -> str:
+    """Compact length of time for "live for …" / "offline for …" labels."""
+    from .i18n import t
+    minutes = max(0, int(seconds)) // 60
+    if minutes < 1:
+        return t('under a minute', 'menos de 1 min')
+    if minutes < 60:
+        return t('{} min', '{} min').format(minutes)
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f'{hours} h {minutes} min' if minutes else f'{hours} h'
+    days, hours = divmod(hours, 24)
+    return f'{days} d {hours} h' if hours else f'{days} d'
+
+
 def disk_free(path) -> int | None:
     try:
         return shutil.disk_usage(str(path)).free

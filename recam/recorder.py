@@ -168,7 +168,7 @@ class Recording:
                 if self.size >= MIN_VALID_BYTES:
                     self.state = 'recording'
                     self.recording_since = time.time()
-                    self.streamer.status = Status.RECORDING
+                    self.streamer.set_status(Status.RECORDING)
                 elif time.time() - self.started_at > START_TIMEOUT:
                     self.log.append(t('No data in {}s; giving up on this attempt.',
                                       'Sin datos en {}s; se cancela el intento.')
@@ -259,7 +259,9 @@ class Recording:
             reason = t('NOT saved — only {} (minimum {}): {}',
                        'NO guardado — solo {} (mínimo {}): {}').format(
                 tools.human_size(self.size), tools.human_size(MIN_VALID_BYTES), hint)
-            s.status = Status.UNKNOWN if self.manual_stop else Status.OFFLINE
+            # stopped by hand: the broadcast is almost surely still on, so keep it in
+            # the live group (the cooldown is what holds auto-record back, not this)
+            s.set_status(Status.ONLINE if self.manual_stop else Status.OFFLINE)
             s.last_error = reason
             s.last_result = ''
             s.cooldown_until = time.time() + COOLDOWN_AFTER_OFFLINE
@@ -282,7 +284,9 @@ class Recording:
             saved = True
             s.last_result = reason
             s.last_error = ''
-            s.status = Status.UNKNOWN if self.manual_stop else Status.OFFLINE
+            # stopped by hand: the broadcast is almost surely still on, so keep it in
+            # the live group (the cooldown is what holds auto-record back, not this)
+            s.set_status(Status.ONLINE if self.manual_stop else Status.OFFLINE)
             s.cooldown_until = time.time() + (COOLDOWN_AFTER_MANUAL_STOP if self.manual_stop
                                               else COOLDOWN_AFTER_END)
 

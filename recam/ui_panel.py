@@ -5,6 +5,7 @@ import contextlib
 import html as html_mod
 import os
 import time
+from typing import Callable
 
 from nicegui import ui
 
@@ -13,11 +14,12 @@ from . import tools
 from .i18n import t
 from .models import Status, Streamer, state_label, status_label
 from .monitor import Monitor
-from .platforms import PLATFORM_COLORS
-from .ui_common import copy_to_clipboard, live_preview, notify, open_log_file, refresh
+from .platforms import PLATFORM_COLORS, thumbnail_url
+from .ui_common import (copy_to_clipboard, live_preview, live_thumbnail, notify,
+                        open_log_file, refresh)
 
-# tiles sort by usefulness: recording first, then live, then the rest
-_ORDER = {Status.RECORDING: 0, Status.ONLINE: 1, Status.UNKNOWN: 2, Status.OFFLINE: 3}
+# how often the still of a live room we are not recording gets re-fetched
+_THUMB_EVERY = 30
 
 _EVENT_STYLE = {
     'start': ('fiber_manual_record', 'text-red-500'),
@@ -32,14 +34,39 @@ _GRID_STYLE = 'grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))'
 def build(monitor: Monitor):
     """Build the Panel tab. Returns the callback the page timer should tick."""
 
-    def ordered_streamers() -> list[Streamer]:
-        return sorted(monitor.streamers,
-                      key=lambda s: (0 if s.key in monitor.recordings
-                                     else _ORDER.get(s.status, 2),
-                                     s.username.lower()))
+    # per-tile widgets the page timer keeps fresh without rebuilding the grid
+    timeline_labels: dict[str, tuple[ui.label, Streamer]] = {}
+    thumb_bumpers: dict[str, Callable[[], None]] = {}
+
+    def split_streamers() -> tuple[list[Streamer], list[Streamer]]:
+        live = [s for s in monitor.streamers if s.is_live or s.key in monitor.recordings]
+        live_keys = {s.key for s in live}
+        rest = [s for s in monitor.streamers if s.key not in live_keys]
+        # recording first, then whoever has been on the longest
+        live.sort(key=lambda s: (s.key not in monitor.recordings,
+                                 s.live_since or float('inf'), s.username.lower()))
+        # the most recently live at the top, never-seen ones at the bottom
+        rest.sort(key=lambda s: (-(s.last_online or s.last_broadcast_start),
+                                 s.username.lower()))
+        return live, rest
+
+    def section(title: str, icon: str, color: str, items: list[Streamer],
+                empty: str) -> None:
+        with ui.row().classes('w-full items-center gap-2 mt-1'):
+            ui.icon(icon, size='xs').classes(color)
+            ui.label(title).classes('text-sm font-medium')
+            ui.badge(str(len(items))).props('outline color=grey-6')
+        if not items:
+            ui.label(empty).classes('text-xs text-gray-500 pl-6')
+            return
+        with ui.element('div').classes('w-full grid gap-2 items-start').style(_GRID_STYLE):
+            for s in items:
+                _streamer_tile(monitor, s, streamer_table, timeline_labels, thumb_bumpers)
 
     @ui.refreshable
     def streamer_table() -> None:
+        timeline_labels.clear()
+        thumb_bumpers.clear()
         if not monitor.streamers:
             with ui.card().classes('w-full items-center p-10').props('flat bordered'):
                 ui.icon('videocam_off', size='xl').classes('text-gray-600')
@@ -47,9 +74,11 @@ def build(monitor: Monitor):
                            'Añade tu primer canal pegando su URL arriba')) \
                     .classes('text-gray-500')
             return
-        with ui.element('div').classes('w-full grid gap-2 items-start').style(_GRID_STYLE):
-            for s in ordered_streamers():
-                _streamer_tile(monitor, s, streamer_table)
+        live, rest = split_streamers()
+        section(t('Live now', 'En vivo ahora'), 'sensors', 'text-green-500', live,
+                t('Nobody is live right now', 'Nadie está en vivo ahora mismo'))
+        section(t('Not broadcasting', 'Sin emitir'), 'videocam_off', 'text-gray-500', rest,
+                t('Everyone is live', 'Todos están en vivo'))
 
     @ui.refreshable
     def activity() -> None:
@@ -120,6 +149,7 @@ def build(monitor: Monitor):
         activity()
 
     last_signature: list = [None]
+    last_thumb_bump = [time.time()]
 
     def tick() -> None:
         rec_count = len(monitor.recordings)
@@ -144,11 +174,21 @@ def build(monitor: Monitor):
             last_signature[0] = signature
             streamer_table.refresh()
             activity.refresh()
+        # the "live for 12 min" lines drift on their own; cheaper to retext than rebuild
+        for label, s in list(timeline_labels.values()):
+            text = _timeline_text(s)
+            if label.text != text:
+                label.set_text(text)
+        if time.time() - last_thumb_bump[0] >= _THUMB_EVERY:
+            last_thumb_bump[0] = time.time()
+            for bump in list(thumb_bumpers.values()):
+                bump()
 
     return tick
 
 
-def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
+def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table,
+                   timeline_labels: dict, thumb_bumpers: dict) -> None:
     rec = monitor.recordings.get(s.key)
     label, color = status_label(s.status)
 
@@ -253,6 +293,10 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
             ui.badge(label).props(f'color={color}').classes('whitespace-nowrap flex-none')
         if rec:
             refresh_frame = live_preview(rec, extra_classes='rounded-lg')
+        elif s.is_live and (still := thumbnail_url(s.platform, s.username)):
+            thumb_bumpers[s.key] = live_thumbnail(still, extra_classes='rounded-lg')
+        timeline = ui.label(_timeline_text(s)).classes('text-xs text-gray-400 truncate w-full')
+        timeline_labels[s.key] = (timeline, s)
         with ui.element('div').classes('w-full min-h-[1rem]'):
             if rec:
                 live = ui.label().classes('text-xs font-mono text-red-400 truncate w-full')
@@ -296,6 +340,27 @@ def _streamer_tile(monitor: Monitor, s: Streamer, streamer_table) -> None:
                 .props('dense size=sm') \
                 .tooltip(t('Auto-record when it goes live',
                            'Auto-grabar cuando esté en vivo'))
+
+
+def _timeline_text(s: Streamer) -> str:
+    """One line placing the channel in time: how long it has been on, or off."""
+    now = time.time()
+    if s.is_live:
+        parts = [t('live for {}', 'en vivo desde hace {}').format(
+            tools.human_span(now - s.live_since)) if s.live_since else t('live', 'en vivo')]
+        if s.viewers:
+            parts.append(t('{} viewers', '{} espectadores').format(s.viewers))
+        return ' · '.join(parts)
+    if s.last_online:
+        return t('offline for {}', 'sin emitir desde hace {}').format(
+            tools.human_span(now - s.last_online))
+    if s.last_broadcast_start:
+        # never caught it live ourselves; the site still tells when it last started
+        return t('last broadcast started {}', 'última emisión empezó {}').format(
+            tools.human_ago(s.last_broadcast_start))
+    if not s.last_check:
+        return t('not checked yet', 'sin comprobar aún')
+    return t('never seen live', 'no se ha visto en vivo')
 
 
 def _subtitle(s: Streamer) -> str:

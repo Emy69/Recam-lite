@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -11,6 +12,10 @@ class Status(str, Enum):
     OFFLINE = 'offline'
     ONLINE = 'online'
     RECORDING = 'recording'
+
+
+# both mean "there is a broadcast right now"; the panel groups tiles by this
+LIVE_STATUSES = (Status.ONLINE, Status.RECORDING)
 
 
 def status_label(status: Status) -> tuple[str, str]:
@@ -40,8 +45,14 @@ class Streamer:
     username: str
     auto_record: bool = True
 
+    # the live/offline timeline; these two survive restarts (see to_json)
+    last_online: float = 0.0            # last moment we saw a broadcast running
+    last_broadcast_start: float = 0.0   # start of the latest broadcast the site reported
+
     # everything below is runtime only; to_json/from_json deliberately skip it
     status: Status = Status.UNKNOWN
+    live_since: float = 0.0             # start of the current broadcast (0 = not live)
+    viewers: int = 0
     last_check: float = 0.0
     cooldown_until: float = 0.0
     last_result: str = ''
@@ -55,11 +66,45 @@ class Streamer:
     def key(self) -> str:
         return f'{self.platform}:{self.username.lower()}'
 
+    @property
+    def is_live(self) -> bool:
+        return self.status in LIVE_STATUSES
+
+    def set_status(self, status: Status, started_at: float = 0.0) -> bool:
+        """Change the status while keeping the timeline straight.
+
+        `started_at` is the broadcast start the site reported, when known; without
+        it the first moment we saw the channel live stands in. Returns True when the
+        channel crossed the live/offline line, which is when the persisted fields
+        changed and the list is worth saving.
+        """
+        was_live = self.is_live
+        self.status = status
+        now = time.time()
+        if self.is_live:
+            self.last_online = now
+            if started_at:
+                self.live_since = started_at
+                self.last_broadcast_start = started_at
+            elif not was_live or not self.live_since:
+                self.live_since = now
+        else:
+            self.live_since = 0.0
+            self.viewers = 0
+        return was_live != self.is_live
+
     def to_json(self) -> dict:
-        return {'url': self.url, 'platform': self.platform,
-                'username': self.username, 'auto_record': self.auto_record}
+        d = {'url': self.url, 'platform': self.platform,
+             'username': self.username, 'auto_record': self.auto_record}
+        if self.last_online:
+            d['last_online'] = round(self.last_online)
+        if self.last_broadcast_start:
+            d['last_broadcast_start'] = round(self.last_broadcast_start)
+        return d
 
     @staticmethod
     def from_json(d: dict) -> 'Streamer':
         return Streamer(url=d['url'], platform=d['platform'],
-                        username=d['username'], auto_record=d.get('auto_record', True))
+                        username=d['username'], auto_record=d.get('auto_record', True),
+                        last_online=float(d.get('last_online', 0) or 0),
+                        last_broadcast_start=float(d.get('last_broadcast_start', 0) or 0))
