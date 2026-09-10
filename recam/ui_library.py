@@ -132,9 +132,13 @@ def build(library: Library, monitor=None):
         items = {i.rel: i for i in visible_items()}
         chosen = [items[r] for r in selected if r in items]
         size = tools.human_size(sum(i.size for i in chosen))
-        with ui.row().classes('w-full items-center gap-2 bg-red-950/30 rounded-xl p-2'):
-            ui.label(t('{} selected · {}', '{} seleccionadas · {}')
-                     .format(len(chosen), size)).classes('text-sm')
+        # a quiet bar: only the destructive action is solid red
+        with ui.row().classes('w-full items-center gap-1 h-10 rounded-lg bg-[#131a22] '
+                              'border border-rose-600/45 pl-3.5 pr-1.5 flex-nowrap'):
+            ui.icon('check_box', size='xs').classes('text-rose-400')
+            ui.label(t('{} selected', '{} seleccionadas').format(len(chosen))) \
+                .classes('text-sm font-semibold')
+            ui.label(f'· {size}').classes('text-sm text-gray-500')
             ui.space()
 
             def select_all() -> None:
@@ -170,26 +174,18 @@ def build(library: Library, monitor=None):
                         library.delete(item)
                     except Exception:
                         failed += 1
-                selected.clear()
-                state['select'] = False
+                set_select(False)
                 msg = t('{} sent to the recycle bin', '{} enviadas a la papelera') \
                     .format(len(chosen) - failed)
                 if failed:
                     msg += t(' · {} failed', ' · {} fallaron').format(failed)
                 notify(msg, type='warning' if failed else 'positive')
-                actionbar.refresh()
                 await rescan()
 
-            ui.button(t('To recycle bin', 'A la papelera'), icon='delete', color='red',
-                      on_click=delete_selected).props('dense no-caps')
-
-            def exit_select() -> None:
-                state['select'] = False
-                selected.clear()
-                listing.refresh()
-                actionbar.refresh()
-
-            ui.button(t('Done', 'Listo'), on_click=exit_select).props('flat dense no-caps')
+            ui.button(t('To recycle bin', 'A la papelera'), icon='delete',
+                      on_click=delete_selected).props('unelevated dense no-caps color=primary')
+            ui.button(t('Done', 'Listo'), on_click=lambda: set_select(False)) \
+                .props('flat dense no-caps')
 
     @ui.refreshable
     def listing() -> None:
@@ -203,7 +199,7 @@ def build(library: Library, monitor=None):
             parts.append(t('{} recording', '{} grabando').format(len(active)))
         total_dur = sum(i.duration or 0 for i in items)
         if total_dur:
-            parts.append(tools.human_duration(total_dur))
+            parts.append(tools.human_span(total_dur))
         parts.append(tools.human_size(sum(i.size for i in items)))
         count_label.set_text(' · '.join(parts))
         if not active and not items:
@@ -232,24 +228,30 @@ def build(library: Library, monitor=None):
 
         # profiles tile up in a grid too; a single filtered profile gets the full width
         columns = '1fr' if len(order) == 1 else 'repeat(auto-fill, minmax(340px, 1fr))'
-        with ui.element('div').classes('w-full grid gap-2 mt-1 items-start') \
+        with ui.element('div').classes('w-full grid gap-2.5 mt-1 items-start') \
                 .style(f'grid-template-columns: {columns}'):
             for name in order:
                 group = groups[name]
                 vids = group['items']
-                head_parts = [name]
-                if group['recs']:
-                    head_parts[0] = f'⏺ {name}'
+                recording = bool(group['recs'])
+                meta = []
                 if vids:
-                    head_parts.append(t('{} videos', '{} vídeos').format(len(vids))
-                                      if len(vids) != 1 else t('1 video', '1 vídeo'))
-                    head_parts.append(tools.human_size(sum(i.size for i in vids)))
-                else:
-                    head_parts.append(t('recording now', 'grabando ahora'))
-                with ui.expansion(' · '.join(head_parts), icon='person', value=True) \
-                        .classes('w-full rounded-xl border border-white/5 bg-[#131a22]') \
-                        .props('dense header-class="text-sm font-medium"'):
-                    with ui.element('div').classes('w-full grid gap-2 pb-2') \
+                    meta.append(t('{} videos', '{} vídeos').format(len(vids))
+                                if len(vids) != 1 else t('1 video', '1 vídeo'))
+                    meta.append(tools.human_size(sum(i.size for i in vids)))
+                if recording:
+                    meta.append(t('recording now', 'grabando ahora'))
+                elif vids:
+                    meta.append(t('latest {}', 'última {}')
+                                .format(tools.human_ago(max(i.mtime for i in vids))))
+                border = 'border-rose-600/45' if recording else 'border-white/5'
+                with ui.expansion(value=True) \
+                        .props('dense expand-icon-class="text-grey-5"') \
+                        .classes(f'w-full rounded-[10px] border {border} bg-[#131a22] '
+                                 'overflow-hidden') as profile:
+                    with profile.add_slot('header'):
+                        _profile_header(name, meta, recording)
+                    with ui.element('div').classes('w-full grid gap-2 px-2.5 pb-2.5') \
                             .style('grid-template-columns: '
                                    'repeat(auto-fill, minmax(150px, 1fr))'):
                         for rec in group['recs']:
@@ -272,32 +274,45 @@ def build(library: Library, monitor=None):
         actionbar.refresh()
 
     with ui.column().classes('w-full max-w-5xl mx-auto gap-3'):
-        with ui.row().classes('w-full items-center gap-2'):
-            ui.button(icon='refresh', on_click=rescan).props('flat round') \
+        with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
+            ui.button(icon='refresh', on_click=rescan).props('flat round dense color=grey-5') \
                 .tooltip(t('Refresh', 'Actualizar'))
-            filter_select = ui.select({'ALL': all_label}, value='ALL',
-                                      label=t('Streamer', 'Streamer')) \
+            # field labels sit inline as prefixes: same meaning, a shorter bar
+            filter_select = ui.select({'ALL': all_label}, value='ALL') \
                 .props('outlined dense options-dense').classes('w-44')
-            sort_select = ui.select(_sorts(), value='recent',
-                                    label=t('Sort', 'Ordenar')) \
+            with filter_select.add_slot('prepend'):
+                ui.label(t('Streamer', 'Streamer')).classes('text-[11px] text-gray-500')
+            sort_select = ui.select(_sorts(), value='recent') \
                 .props('outlined dense options-dense').classes('w-40')
+            with sort_select.add_slot('prepend'):
+                ui.label(t('Sort', 'Orden')).classes('text-[11px] text-gray-500')
+            # the search box is the one field that yields width when the bar gets tight
             search = ui.input(placeholder=t('Search…', 'Buscar…')) \
-                .props('outlined dense clearable').classes('w-48')
+                .props('outlined dense clearable').classes('w-56 shrink min-w-[120px]')
+            with search.add_slot('prepend'):
+                ui.icon('search', size='xs').classes('text-gray-500')
 
-            def toggle_select() -> None:
-                state['select'] = not state['select']
-                if not state['select']:
+            def set_select(on: bool) -> None:
+                state['select'] = on
+                if not on:
                     selected.clear()
+                if on:
+                    select_btn.classes(add='bg-white/10 text-white')
+                else:
+                    select_btn.classes(remove='bg-white/10 text-white')
                 listing.refresh()
                 actionbar.refresh()
 
-            ui.button(icon='checklist', on_click=toggle_select).props('flat round') \
+            select_btn = ui.button(t('Select', 'Seleccionar'), icon='checklist',
+                                   on_click=lambda: set_select(not state['select'])) \
+                .props('flat dense no-caps no-wrap').classes('shrink-0') \
                 .tooltip(t('Select several (for bulk delete)',
                            'Seleccionar varias (para borrar en lote)'))
             ui.space()
-            count_label = ui.label().classes('text-sm text-gray-500')
+            count_label = ui.label().classes('text-xs text-gray-500 truncate min-w-0')
             ui.button(t('Open folder', 'Abrir carpeta'), icon='folder_open',
-                      on_click=lambda: library.open_root()).props('flat')
+                      on_click=lambda: library.open_root()) \
+                .props('flat dense no-caps no-wrap').classes('bg-white/5 shrink-0')
 
         def on_filter() -> None:
             state['streamer'] = filter_select.value or 'ALL'
@@ -316,13 +331,28 @@ def build(library: Library, monitor=None):
     return rescan
 
 
+def _profile_header(name: str, meta: list[str], recording: bool) -> None:
+    """Expansion header: initial avatar, name (plus REC when capturing), one line of figures."""
+    avatar = 'bg-rose-600/20 text-rose-300' if recording else 'bg-white/10 text-gray-300'
+    with ui.row().classes('w-full items-center gap-2.5 h-12 flex-nowrap min-w-0'):
+        ui.label(name[:1].upper()).classes(
+            'w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center '
+            f'flex-none {avatar}')
+        with ui.column().classes('grow min-w-0 gap-0'):
+            with ui.row().classes('w-full items-center gap-2 flex-nowrap min-w-0'):
+                ui.label(name).classes('text-[13px] font-semibold truncate')
+                if recording:
+                    ui.badge('REC').props('color=primary').classes('text-[10px] font-bold')
+            ui.label(' · '.join(meta)).classes('text-[11px] text-gray-500 truncate w-full')
+
+
 def _recording_tile(rec) -> None:
     """A capture in flight, with a live preview frame that refreshes as it runs."""
-    with ui.card().tight().classes('w-full outline outline-1 outline-red-800/60') \
+    with ui.card().tight().classes('w-full rounded-lg bg-[#0f151c] border-rose-600/60') \
             .props('flat bordered'):
         refresh_frame = live_preview(rec)
-        with ui.column().classes('p-2 pt-1.5 w-full gap-0'):
-            live = ui.label().classes('text-xs text-red-400 font-mono truncate w-full')
+        with ui.column().classes('p-1.5 pl-2 w-full gap-0'):
+            live = ui.label().classes('text-xs font-mono text-rose-400 truncate w-full')
 
             def update(rec=rec) -> None:
                 live.set_text(f'● {tools.human_duration(rec.elapsed)} · '
@@ -331,8 +361,8 @@ def _recording_tile(rec) -> None:
 
             update()
             ui.timer(2.0, update)
-            ui.label(t('recording · appears when it ends',
-                       'grabando · aparecerá al terminar')).classes('text-xs text-gray-500')
+            ui.label(t('appears when it ends', 'aparecerá al terminar')) \
+                .classes('text-[11px] text-gray-500 truncate w-full')
 
 
 def _video_tile(library: Library, item: LibraryItem, rescan, play_item,
@@ -401,15 +431,18 @@ def _video_tile(library: Library, item: LibraryItem, rescan, play_item,
         else:
             play_item(item)
 
-    outline = ' outline outline-2 outline-red-600' if is_selected else ''
-    with ui.card().tight().classes('w-full relative' + outline).props('flat bordered'):
+    ring = ' border-rose-500 ring-1 ring-rose-500/60' if is_selected else ''
+    with ui.card().tight().classes('w-full relative rounded-lg bg-[#0f151c]' + ring) \
+            .props('flat bordered') as card:
         if select_mode:
-            ui.checkbox(value=is_selected,
-                        on_change=lambda e: toggle_item(item, bool(e.value))) \
-                .props('dense keep-color color=red') \
-                .classes('absolute top-1 left-1 z-10 bg-black/60 rounded')
+            # the whole card is the target in this mode; the box only shows the state
+            ui.checkbox(value=is_selected) \
+                .props('dense keep-color color=primary size=sm') \
+                .classes('absolute top-1 left-1 z-10 rounded bg-black/60 pointer-events-none')
+            card.classes(add='cursor-pointer')
+            card.on('click', primary)
         thumb = ui.element('div').classes(
-            'relative w-full h-24 cursor-pointer overflow-hidden bg-black')
+            'relative w-full aspect-video cursor-pointer overflow-hidden bg-black')
         with thumb:
             if item.thumb:
                 ui.image(str(item.thumb)).classes('w-full h-full object-cover')
@@ -419,29 +452,34 @@ def _video_tile(library: Library, item: LibraryItem, rescan, play_item,
                     ui.icon('smart_display', size='md').classes('text-gray-700')
             if item.duration:
                 ui.label(tools.human_duration(item.duration)).classes(
-                    'absolute bottom-1 right-1 text-[11px] font-mono '
-                    'bg-black/75 px-1.5 py-0.5 rounded')
+                    'absolute bottom-1 right-1 text-[10px] font-mono '
+                    'bg-black/75 px-1 rounded')
             if item.is_ts:
+                # top right: the top-left corner belongs to the selection box
                 ui.label(t('RAW', 'SIN PROCESAR')).classes(
-                    'absolute top-1 left-1 text-[10px] font-medium '
-                    'bg-amber-500/90 text-black px-1.5 py-0.5 rounded')
-        thumb.on('click', primary)
-        with ui.column().classes('p-2 pt-1.5 w-full gap-0'):
+                    'absolute top-1 right-1 text-[9px] font-bold '
+                    'bg-amber-500 text-black px-1 rounded')
+        if not select_mode:
+            thumb.on('click', primary)
+        with ui.column().classes('p-1.5 pl-2 w-full gap-0'):
             title = ui.label(item.path.stem) \
-                .classes('text-xs font-medium truncate w-full cursor-pointer') \
+                .classes('text-xs font-semibold truncate w-full cursor-pointer') \
                 .tooltip(item.rel)
-            title.on('click', primary)
-            with ui.row().classes('w-full items-center gap-1 flex-nowrap'):
+            if not select_mode:
+                title.on('click', primary)
+            with ui.row().classes('w-full items-center gap-1 flex-nowrap h-[18px]'):
                 ui.label(f'{tools.human_ago(item.mtime)} · '
                          f'{tools.human_size(item.size)}') \
                     .classes('text-[11px] text-gray-500 truncate grow min-w-0') \
                     .tooltip(exact_date)
+                if select_mode:
+                    return   # less noise while picking: no per-video actions
                 if item.is_ts:
                     ui.button(icon='auto_fix_high', on_click=convert) \
-                        .props('flat round dense size=sm') \
+                        .props('flat round dense size=sm color=grey-5') \
                         .tooltip(t('Convert to MP4 (raw capture)',
                                    'Convertir a MP4 (grabación sin procesar)'))
-                with ui.button(icon='more_vert').props('flat round dense size=sm'):
+                with ui.button(icon='more_horiz').props('flat round dense size=sm color=grey-5'):
                     with ui.menu():
                         ui.menu_item(t('Open with the system player',
                                        'Abrir con el reproductor del sistema'),
