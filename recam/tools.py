@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
+import urllib.request
+import zipfile
 from ctypes import wintypes
 from datetime import datetime
 from functools import lru_cache
@@ -94,15 +98,25 @@ def bind_to_lifetime(pid: int) -> None:
 _WINGET_LINKS = Path(os.environ.get('LOCALAPPDATA', '')) / 'Microsoft' / 'WinGet' / 'Links'
 
 
+# where a bundled or downloaded ffmpeg lives: next to the exe, or in the project
+# root when running from source (the same place config.BASE_DIR points at)
+TOOLS_DIR = (_APP_DIR if _APP_DIR is not None
+             else Path(__file__).resolve().parent.parent) / 'ffmpeg'
+
+FFMPEG_ZIP_URL = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+
+
 @lru_cache(maxsize=None)
 def find_tool(name: str) -> str | None:
-    """Locate an executable. A copy shipped next to the frozen app wins; winget
-    installs land in a shim dir that is often missing from the PATH of a
+    """Locate an executable. A copy shipped with or downloaded by the app wins;
+    winget installs land in a shim dir that is often missing from the PATH of a
     process started before the install."""
+    candidates = [TOOLS_DIR / f'{name}.exe']
     if _APP_DIR is not None:
-        for candidate in (_APP_DIR / f'{name}.exe', _APP_DIR / 'ffmpeg' / f'{name}.exe'):
-            if candidate.exists():
-                return str(candidate)
+        candidates.insert(0, _APP_DIR / f'{name}.exe')
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
     found = shutil.which(name)
     if found:
         return found
@@ -116,6 +130,63 @@ def ffmpeg_path() -> str | None:
 
 def ffprobe_path() -> str | None:
     return find_tool('ffprobe')
+
+
+def missing_tools() -> list[str]:
+    """The external binaries recording depends on that cannot be found."""
+    return [name for name in ('ffmpeg', 'ffprobe') if not find_tool(name)]
+
+
+def download_ffmpeg(progress: dict | None = None) -> Path:
+    """Fetch a static Windows build and drop ffmpeg.exe + ffprobe.exe into TOOLS_DIR.
+
+    Blocking; run it in a worker thread. `progress`, when given, is updated with
+    'done'/'total' bytes and a 'stage' ('download' then 'unpack') for a UI to poll.
+    The published sha256 is checked when it can be fetched; a mismatch fails hard.
+    """
+    from .i18n import t
+    if os.name != 'nt':
+        raise RuntimeError(t('Automatic download is only available on Windows',
+                             'La descarga automática solo está disponible en Windows'))
+    progress = progress if progress is not None else {}
+    progress.update(done=0, total=0, stage='download')
+    request = urllib.request.Request(FFMPEG_ZIP_URL, headers={'User-Agent': 'Recam'})
+    archive = Path(tempfile.gettempdir()) / 'recam-ffmpeg.zip'
+    digest = hashlib.sha256()
+    with urllib.request.urlopen(request, timeout=120) as response, open(archive, 'wb') as out:
+        progress['total'] = int(response.headers.get('Content-Length') or 0)
+        while chunk := response.read(256 * 1024):
+            out.write(chunk)
+            digest.update(chunk)
+            progress['done'] += len(chunk)
+
+    expected = ''
+    with contextlib.suppress(Exception):
+        with urllib.request.urlopen(FFMPEG_ZIP_URL + '.sha256', timeout=30) as sidecar:
+            expected = sidecar.read().decode('utf-8', 'replace').split()[0].strip().lower()
+    if expected and digest.hexdigest() != expected:
+        archive.unlink(missing_ok=True)
+        raise RuntimeError(t('the download did not match its published checksum',
+                             'la descarga no coincide con su suma de verificación'))
+
+    progress['stage'] = 'unpack'
+    TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+    wanted = {'ffmpeg.exe', 'ffprobe.exe'}
+    extracted: set[str] = set()
+    with zipfile.ZipFile(archive) as zf:
+        for member in zf.infolist():
+            base = os.path.basename(member.filename)
+            if member.is_dir() or base not in wanted:
+                continue
+            with zf.open(member) as src, open(TOOLS_DIR / base, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+            extracted.add(base)
+    archive.unlink(missing_ok=True)
+    if extracted != wanted:
+        raise RuntimeError(t('the archive did not contain {}', 'el archivo no contenía {}')
+                           .format(', '.join(sorted(wanted - extracted))))
+    find_tool.cache_clear()   # make the new binaries visible without a restart
+    return TOOLS_DIR
 
 
 def package_version(package: str) -> str | None:

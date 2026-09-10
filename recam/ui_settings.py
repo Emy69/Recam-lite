@@ -13,7 +13,7 @@ from . import __version__, AUTHOR, LINKS, i18n, logbook, tools
 from . import config as config_mod
 from .i18n import t
 from .monitor import Monitor
-from .ui_common import copy_to_clipboard, open_log_file
+from .ui_common import copy_to_clipboard, notify, open_log_file
 
 # icon + Quasar colour per link, so the About card reads at a glance
 _LINK_STYLE = {
@@ -137,62 +137,67 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
                            'los canales con auto-grabar activado; minimízala a la bandeja '
                            'y seguirá grabando de fondo.')).classes('text-xs text-gray-500')
 
-        with ui.card().classes('w-full gap-2').props('flat bordered'):
-            ui.label(t('Tools', 'Herramientas')).classes('text-lg font-medium')
-            ffmpeg = tools.ffmpeg_path()
-            rows = [
-                ('ffmpeg', tools.tool_version(ffmpeg) if ffmpeg else None),
-                ('streamlink', tools.package_version('streamlink')),
-                ('yt-dlp', tools.package_version('yt-dlp')),
-                ('NiceGUI', tools.package_version('nicegui')),
-            ]
-            for name, version in rows:
-                if name == 'streamlink' and version is None:
-                    continue   # not shipped in the Chaturbate-only frozen build
-                with ui.row().classes('items-center gap-2'):
-                    ui.icon('check_circle' if version else 'error',
-                            color='green' if version else 'red')
-                    ui.label(f'{name}: {version or t("not found", "no encontrado")}') \
-                        .classes('text-sm')
-            if not ffmpeg:
-                ui.label(t('Install ffmpeg with:  winget install Gyan.FFmpeg',
-                           'Instala ffmpeg con:  winget install Gyan.FFmpeg')) \
-                    .classes('text-xs text-red-500')
+        @ui.refreshable
+        def tools_card() -> None:
+            with ui.card().classes('w-full gap-2').props('flat bordered'):
+                ui.label(t('Tools', 'Herramientas')).classes('text-lg font-medium')
+                ffmpeg = tools.ffmpeg_path()
+                ffprobe = tools.ffprobe_path()
+                rows = [
+                    ('ffmpeg', tools.tool_version(ffmpeg) if ffmpeg else None),
+                    ('ffprobe', tools.tool_version(ffprobe) if ffprobe else None),
+                    ('streamlink', tools.package_version('streamlink')),
+                    ('yt-dlp', tools.package_version('yt-dlp')),
+                    ('NiceGUI', tools.package_version('nicegui')),
+                ]
+                for name, version in rows:
+                    if name == 'streamlink' and version is None:
+                        continue   # not shipped in the Chaturbate-only frozen build
+                    with ui.row().classes('items-center gap-2'):
+                        ui.icon('check_circle' if version else 'error',
+                                color='green' if version else 'red')
+                        ui.label(f'{name}: {version or t("not found", "no encontrado")}') \
+                            .classes('text-sm')
 
-            if tools.IS_FROZEN:
-                ui.label(t('Tool updates ship with new app builds.',
-                           'Las actualizaciones de herramientas llegan con nuevas '
-                           'versiones de la app.')).classes('text-xs text-gray-500')
-            else:
-                update_btn = ui.button(t('Update yt-dlp and streamlink',
-                                         'Actualizar yt-dlp y streamlink'),
-                                       icon='system_update_alt').props('outline')
-                ui.label(t('These sites change often; if a platform stops recording, '
-                           'update here and restart the app.',
-                           'Estos sitios cambian a menudo; si una plataforma deja de '
-                           'grabar, actualiza aquí y reinicia la app.')) \
-                    .classes('text-xs text-gray-500')
+                if tools.missing_tools():
+                    _ffmpeg_downloader(tools_card)
 
-                async def update_tools() -> None:
-                    update_btn.props('loading')
-                    proc = await asyncio.create_subprocess_exec(
-                        sys.executable, '-m', 'pip', 'install', '-U',
-                        'yt-dlp', 'streamlink',
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                        creationflags=tools.CREATE_NO_WINDOW)
-                    rc = await proc.wait()
-                    update_btn.props(remove='loading')
-                    if rc == 0:
-                        ui.notify(t('Updated. Restart the app to use the new versions.',
-                                    'Actualizado. Reinicia la app para usar las '
-                                    'versiones nuevas.'), type='positive')
-                    else:
-                        ui.notify(t('The update failed; check the connection.',
-                                    'La actualización falló; revisa la conexión.'),
-                                  type='negative')
+                if tools.IS_FROZEN:
+                    ui.label(t('Tool updates ship with new app builds.',
+                               'Las actualizaciones de herramientas llegan con nuevas '
+                               'versiones de la app.')).classes('text-xs text-gray-500')
+                else:
+                    update_btn = ui.button(t('Update yt-dlp and streamlink',
+                                             'Actualizar yt-dlp y streamlink'),
+                                           icon='system_update_alt').props('outline')
+                    ui.label(t('These sites change often; if a platform stops recording, '
+                               'update here and restart the app.',
+                               'Estos sitios cambian a menudo; si una plataforma deja de '
+                               'grabar, actualiza aquí y reinicia la app.')) \
+                        .classes('text-xs text-gray-500')
 
-                update_btn.on_click(update_tools)
+                    async def update_tools() -> None:
+                        update_btn.props('loading')
+                        proc = await asyncio.create_subprocess_exec(
+                            sys.executable, '-m', 'pip', 'install', '-U',
+                            'yt-dlp', 'streamlink',
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.DEVNULL,
+                            creationflags=tools.CREATE_NO_WINDOW)
+                        rc = await proc.wait()
+                        update_btn.props(remove='loading')
+                        if rc == 0:
+                            notify(t('Updated. Restart the app to use the new versions.',
+                                     'Actualizado. Reinicia la app para usar las '
+                                     'versiones nuevas.'), type='positive')
+                        else:
+                            notify(t('The update failed; check the connection.',
+                                     'La actualización falló; revisa la conexión.'),
+                                   type='negative')
+
+                    update_btn.on_click(update_tools)
+
+        tools_card()
 
         def show_log_tail() -> None:
             text = logbook.read_tail()
@@ -270,3 +275,52 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
 
         ui.label(f'Recam v{__version__} · {AUTHOR}') \
             .classes('text-xs text-gray-600 self-center')
+
+
+def _ffmpeg_downloader(tools_card) -> None:
+    """Red hint plus a one-click download for the ffmpeg binaries that are missing."""
+    ui.label(t('Recording needs ffmpeg and ffprobe. Download them here (about 110 MB, '
+               'no admin rights needed) or install them with: winget install Gyan.FFmpeg',
+               'Para grabar hacen falta ffmpeg y ffprobe. Descárgalos aquí (unos 110 MB, '
+               'sin permisos de administrador) o instálalos con: winget install Gyan.FFmpeg')) \
+        .classes('text-xs text-red-500')
+    button = ui.button(t('Download ffmpeg', 'Descargar ffmpeg'), icon='download') \
+        .props('unelevated')
+    bar = ui.linear_progress(value=0, show_value=False).classes('w-full')
+    bar.set_visibility(False)
+    status = ui.label().classes('text-xs text-gray-500')
+
+    async def download() -> None:
+        progress = {'done': 0, 'total': 0, 'stage': 'download'}
+        button.props('loading')
+        bar.set_visibility(True)
+
+        def paint() -> None:
+            if progress['stage'] == 'download':
+                total = progress['total']
+                if total:
+                    bar.set_value(progress['done'] / total)
+                status.set_text(t('Downloading… {} of {}', 'Descargando… {} de {}').format(
+                    tools.human_size(progress['done']),
+                    tools.human_size(total) if total else '?'))
+            else:
+                bar.set_value(1)
+                status.set_text(t('Unpacking…', 'Descomprimiendo…'))
+
+        painter = ui.timer(0.3, paint)
+        try:
+            await asyncio.to_thread(tools.download_ffmpeg, progress)
+        except Exception as exc:
+            painter.cancel()
+            button.props(remove='loading')
+            bar.set_visibility(False)
+            status.set_text('')
+            notify(t('Download failed: {}', 'La descarga falló: {}').format(exc),
+                   type='negative')
+            return
+        painter.cancel()
+        notify(t('ffmpeg and ffprobe installed in {}', 'ffmpeg y ffprobe instalados en {}')
+               .format(tools.TOOLS_DIR), type='positive')
+        tools_card.refresh()
+
+    button.on_click(download)
