@@ -31,10 +31,10 @@ PLATFORM_COLORS = {
 ENABLED_PLATFORMS: tuple[str, ...] = ('chaturbate',)
 
 _PATTERNS = [
-    ('twitch', re.compile(r'(?:https?://)?(?:www\.|m\.)?twitch\.tv/([A-Za-z0-9_]{2,30})', re.I)),
-    ('kick', re.compile(r'(?:https?://)?(?:www\.)?kick\.com/([A-Za-z0-9_\-]{2,30})', re.I)),
-    ('stripchat', re.compile(r'(?:https?://)?(?:[a-z]{2,3}\.)?stripchat\.com/([A-Za-z0-9_\-]+)', re.I)),
-    ('chaturbate', re.compile(r'(?:https?://)?(?:[a-z]{2,3}\.)?chaturbate\.com/([A-Za-z0-9_\-]+)', re.I)),
+    ('twitch', re.compile(r'(?<![\w.-])(?:https?://)?(?:www\.|m\.)?twitch\.tv/([A-Za-z0-9_]{2,30})', re.I)),
+    ('kick', re.compile(r'(?<![\w.-])(?:https?://)?(?:www\.)?kick\.com/([A-Za-z0-9_\-]{2,30})', re.I)),
+    ('stripchat', re.compile(r'(?<![\w.-])(?:https?://)?(?:[a-z]{2,3}\.)?stripchat\.com/([A-Za-z0-9_\-]+)', re.I)),
+    ('chaturbate', re.compile(r'(?<![\w.-])(?:https?://)?(?:[a-z]{2,3}\.)?chaturbate\.com/([A-Za-z0-9_\-]+)', re.I)),
 ]
 
 # first path segment of a non-profile URL, so pasting a category page is not

@@ -45,6 +45,25 @@ def clean_mp4_target(path: Path) -> Path:
     return path.with_suffix('.mp4')
 
 
+def full_suffix(path: Path) -> str:
+    """The extension that says what the file really is, '.ts.mp4' included."""
+    if path.name.lower().endswith('.ts.mp4'):
+        return path.name[-len('.ts.mp4'):]
+    return path.suffix
+
+
+def free_path(target: Path) -> Path:
+    """`target`, or the first ' (n)' variant of it that is not taken yet."""
+    if not target.exists():
+        return target
+    stem, suffix = target.stem, target.suffix
+    for n in range(2, 1000):
+        candidate = target.with_name(f'{stem} ({n}){suffix}')
+        if not candidate.exists():
+            return candidate
+    return target
+
+
 class Library:
     def __init__(self, cfg: config_mod.Config) -> None:
         self.cfg = cfg
@@ -94,8 +113,13 @@ class Library:
 
         # drop cache entries for files that vanished — but only under THIS root, so
         # switching the recordings folder back and forth doesn't wipe the cache
-        root_prefix = str(root)
-        stale = {k for k in self._cache if k.startswith(root_prefix)} \
+        def under_root(key: str) -> bool:
+            try:
+                return Path(key).is_relative_to(root)
+            except (OSError, ValueError):
+                return False
+
+        stale = {k for k in self._cache if under_root(k)} \
             - {str(p) for p, _, _ in entries}
         for key in stale:
             del self._cache[key]
@@ -155,10 +179,10 @@ class Library:
             self.bump()
 
     def rename(self, item: LibraryItem, new_stem: str) -> Path:
-        new_stem = config_mod.sanitize_segment(new_stem)
-        if not new_stem:
+        if not new_stem.strip(' .'):
             raise ValueError(t('The name cannot be empty', 'El nombre no puede quedar vacío'))
-        target = item.path.with_name(new_stem + item.path.suffix)
+        new_stem = config_mod.sanitize_segment(new_stem)
+        target = item.path.with_name(new_stem + full_suffix(item.path))
         if target == item.path:
             return target
         if target.exists():
@@ -188,6 +212,7 @@ class Library:
         target = clean_mp4_target(item.path)
         if target == item.path:
             return item.path
+        target = free_path(target)
         result = await recorder.remux_to_mp4(item.path, target)
         if result:
             self._cache.pop(str(item.path), None)

@@ -43,6 +43,26 @@ class Config:
         return Path(self.recordings_dir)
 
 
+_LIMITS = {'poll_seconds': (15, 3600), 'max_concurrent': (1, 20),
+           'audio_offset_ms': (-2000, 2000), 'port': (1, 65535)}
+
+
+def _as_type_of(default, value):
+    if isinstance(default, bool):
+        if not isinstance(value, bool):
+            raise ValueError(value)
+        return value
+    if isinstance(default, int):
+        if isinstance(value, bool):
+            raise ValueError(value)
+        return int(value)
+    if isinstance(default, str):
+        if not isinstance(value, str):
+            raise ValueError(value)
+        return value
+    return value
+
+
 def load() -> Config:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     cfg = Config()
@@ -51,8 +71,16 @@ def load() -> Config:
             data = json.loads(CONFIG_FILE.read_text(encoding='utf-8'))
             valid = {f.name for f in fields(Config)}
             for key, value in data.items():
-                if key in valid:
-                    setattr(cfg, key, value)
+                if key not in valid:
+                    continue
+                try:
+                    clean = _as_type_of(getattr(cfg, key), value)
+                except (TypeError, ValueError):
+                    continue
+                if key in _LIMITS:
+                    low, high = _LIMITS[key]
+                    clean = max(low, min(high, clean))
+                setattr(cfg, key, clean)
         except Exception:
             pass   # a corrupt config should not stop the app from starting
     try:
@@ -88,9 +116,15 @@ def save_streamers(streamers: list[Streamer]) -> None:
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
+_DEVICE_NAMES = {'con', 'prn', 'aux', 'nul',
+                 *(f'com{n}' for n in range(1, 10)),
+                 *(f'lpt{n}' for n in range(1, 10))}
+
 
 def sanitize_segment(name: str) -> str:
     clean = _ILLEGAL.sub('_', name).strip(' .')
+    if clean.split('.')[0].lower() in _DEVICE_NAMES:
+        clean = '_' + clean
     return clean or '_'
 
 

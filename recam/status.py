@@ -7,6 +7,7 @@ one file per order, which avoids read/write races between processes.
 from __future__ import annotations
 
 import contextlib
+import itertools
 import json
 import os
 import time
@@ -44,10 +45,13 @@ def read() -> dict | None:
     return None
 
 
+_SEQUENCE = itertools.count()
+
+
 def send_command(action: str, **kwargs) -> None:
     with contextlib.suppress(OSError):
         COMMANDS_DIR.mkdir(parents=True, exist_ok=True)
-        name = f'{time.time_ns()}_{os.getpid()}.json'
+        name = f'{time.time_ns()}_{next(_SEQUENCE):06d}_{os.getpid()}.json'
         (COMMANDS_DIR / name).write_text(json.dumps({'action': action, **kwargs}),
                                          encoding='utf-8')
 

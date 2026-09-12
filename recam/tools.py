@@ -214,6 +214,7 @@ def tool_version(exe: str) -> str | None:
 
 
 def human_size(num_bytes: float) -> str:
+    num_bytes = max(0.0, num_bytes)
     if num_bytes < 1024:
         return f'{int(num_bytes)} B'
     for unit in ('KB', 'MB', 'GB'):
@@ -226,7 +227,7 @@ def human_size(num_bytes: float) -> str:
 def human_duration(seconds: float | None) -> str:
     if seconds is None:
         return '—'
-    seconds = int(seconds)
+    seconds = max(0, int(seconds))
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
     return f'{h}:{m:02d}:{s:02d}' if h else f'{m}:{s:02d}'
