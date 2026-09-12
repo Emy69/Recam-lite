@@ -17,6 +17,8 @@ from .recorder import Recording
 
 ENCRYPTED_COOLDOWN = 1800   # no point hammering a stream we cannot decrypt
 
+MIN_PAUSE_BETWEEN_PASSES = 5
+
 
 class Monitor:
     """The engine: polls channels, starts captures and collects them when they end."""
@@ -67,16 +69,22 @@ class Monitor:
         if self.client:
             await self.client.aclose()
 
+    def _sleep_after_pass(self, elapsed: float) -> float:
+        """How long to wait before the next pass, the one just finished included."""
+        interval = max(15, int(self.cfg.poll_seconds))
+        return max(MIN_PAUSE_BETWEEN_PASSES, interval - elapsed)
+
     async def _loop(self) -> None:
         await asyncio.sleep(1)
         while True:
+            started = time.monotonic()
             if self.enabled:
                 try:
                     await self._cycle()
                 except Exception as exc:
                     # a bad cycle must never kill the loop, but it should be traceable
                     logbook.event(f'ERROR in the watch cycle: {exc!r}')
-            await asyncio.sleep(max(15, int(self.cfg.poll_seconds)))
+            await asyncio.sleep(self._sleep_after_pass(time.monotonic() - started))
 
     async def _cycle(self) -> None:
         now = time.time()

@@ -24,6 +24,7 @@ COOLDOWN_AFTER_OFFLINE = 15
 _POSTPROCESS = asyncio.Semaphore(1)
 
 SNAPSHOT_EVERY = 15   # seconds between live-preview frames of a running capture
+PREVIEW_IDLE_AFTER = 60
 
 
 class Recording:
@@ -48,6 +49,8 @@ class Recording:
         self.proc: asyncio.subprocess.Process | None = None
         self._watch_task: asyncio.Task | None = None
         self._last_snapshot = 0.0
+        self._preview_read = 0.0
+        self._snapshot_task: asyncio.Task | None = None
 
     @property
     def elapsed(self) -> float:
@@ -59,7 +62,11 @@ class Recording:
 
         The path is what the /media route serves; the mtime doubles as a cache
         buster so the browser refetches each new frame.
+
+        Reading this is also what tells the recorder somebody is looking: frames
+        are only pulled while a page keeps asking for them.
         """
+        self._preview_read = time.time()
         thumb = thumb_path_for(self.mp4_path)
         try:
             mtime = int(thumb.stat().st_mtime)
@@ -82,16 +89,36 @@ class Recording:
         thumb.parent.mkdir(parents=True, exist_ok=True)
         # temp file + replace, so the browser never fetches a half-written image
         tmp = thumb.with_name(thumb.stem + '.live.jpg')
-        for extra in (['-sseof', '-4'], []):   # near the end; first frame as fallback
-            rc, _ = await _run_quiet([ffmpeg, '-y', '-loglevel', 'error', *extra,
-                                      '-i', str(src), '-frames:v', '1',
-                                      '-vf', 'scale=480:-2', str(tmp)], timeout=20)
-            if rc == 0 and tmp.exists() and tmp.stat().st_size > 0:
-                with contextlib.suppress(OSError):
-                    tmp.replace(thumb)
-                return
-        with contextlib.suppress(OSError):
-            tmp.unlink(missing_ok=True)
+        try:
+            for extra in (['-sseof', '-4'], []):   # near the end; first frame as fallback
+                rc, _ = await _run_quiet([ffmpeg, '-y', '-loglevel', 'error', *extra,
+                                          '-i', str(src), '-frames:v', '1',
+                                          '-vf', 'scale=480:-2', str(tmp)], timeout=20)
+                if rc == 0 and tmp.exists() and tmp.stat().st_size > 0:
+                    with contextlib.suppress(OSError):
+                        tmp.replace(thumb)
+                    return
+        finally:
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
+
+    def _should_snapshot(self) -> bool:
+        """Whether to pull a preview frame right now: only while the capture is
+        running, somebody is watching it, and the previous frame is old enough."""
+        if self.state != 'recording':
+            return False
+        if self._snapshot_task is not None and not self._snapshot_task.done():
+            return False
+        if time.time() - self._preview_read > PREVIEW_IDLE_AFTER:
+            return False
+        return time.time() - self._last_snapshot >= SNAPSHOT_EVERY
+
+    async def _stop_snapshot(self) -> None:
+        task, self._snapshot_task = self._snapshot_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
 
     def _output_file(self) -> Path | None:
         """The file the recorder is really writing to.
@@ -160,10 +187,9 @@ class Recording:
                 self.rec_file = found
                 with contextlib.suppress(OSError):
                     self.size = found.stat().st_size
-            if self.state == 'recording' \
-                    and time.time() - self._last_snapshot >= SNAPSHOT_EVERY:
+            if self._should_snapshot():
                 self._last_snapshot = time.time()
-                await self._snapshot()
+                self._snapshot_task = asyncio.create_task(self._snapshot())
             if self.state == 'starting':
                 if self.size >= MIN_VALID_BYTES:
                     self.state = 'recording'
@@ -208,6 +234,7 @@ class Recording:
 
     async def _finalize(self) -> None:
         self.state = 'processing'
+        await self._stop_snapshot()
         # the chaturbate capture leaves a small helper playlist next to the output
         with contextlib.suppress(OSError):
             self.ts_path.with_suffix('.m3u8').unlink(missing_ok=True)

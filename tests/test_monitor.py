@@ -265,3 +265,40 @@ async def test_the_watch_loop_survives_a_broken_cycle(monitor, monkeypatch):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+def test_the_interval_is_the_period_of_a_pass_not_a_pause_on_top(monitor):
+    monitor.cfg.poll_seconds = 20
+    assert monitor._sleep_after_pass(0) == 20
+    assert monitor._sleep_after_pass(5) == 15
+    assert monitor._sleep_after_pass(19) == 5
+
+
+def test_an_overrunning_pass_only_gets_breathing_room(monitor):
+    monitor.cfg.poll_seconds = 20
+    assert monitor._sleep_after_pass(24) == monitor_mod.MIN_PAUSE_BETWEEN_PASSES
+    assert monitor._sleep_after_pass(600) == monitor_mod.MIN_PAUSE_BETWEEN_PASSES
+
+
+def test_the_interval_never_drops_below_fifteen_seconds(monitor):
+    monitor.cfg.poll_seconds = 1
+    assert monitor._sleep_after_pass(0) == 15
+
+
+async def test_the_loop_starts_the_next_pass_without_the_extra_wait(monitor,
+                                                                    monkeypatch):
+    passes = []
+
+    async def slow_cycle():
+        passes.append(time.monotonic())
+        await asyncio.sleep(0.2)
+
+    monkeypatch.setattr(monitor, '_cycle', slow_cycle)
+    monkeypatch.setattr(monitor, '_sleep_after_pass', lambda elapsed: 0.05)
+    task = asyncio.create_task(monitor._loop())
+    await asyncio.sleep(1.7)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(passes) >= 2
+    assert passes[1] - passes[0] == pytest.approx(0.25, abs=0.15)

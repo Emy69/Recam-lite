@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 import types
 from pathlib import Path
@@ -292,3 +293,84 @@ async def test_finalize_reports_how_the_recorder_ended(cfg):
 
 async def _async(value):
     return value
+
+
+def watched(rec):
+    rec._preview_read = time.time()
+    return rec
+
+
+def test_no_preview_frame_is_pulled_while_nobody_looks(cfg):
+    rec = build(cfg)
+    rec.state = 'recording'
+    assert rec._should_snapshot() is False
+
+
+def test_reading_the_preview_asks_for_frames(cfg):
+    rec = build(cfg)
+    rec.state = 'recording'
+    assert rec.live_thumb is None
+    assert rec._should_snapshot() is True
+
+
+def test_the_preview_stops_when_the_page_goes_away(cfg):
+    rec = watched(build(cfg))
+    rec.state = 'recording'
+    assert rec._should_snapshot() is True
+    rec._preview_read = time.time() - recorder.PREVIEW_IDLE_AFTER - 1
+    assert rec._should_snapshot() is False
+
+
+def test_frames_are_spaced_out(cfg):
+    rec = watched(build(cfg))
+    rec.state = 'recording'
+    rec._last_snapshot = time.time()
+    assert rec._should_snapshot() is False
+    rec._last_snapshot = time.time() - recorder.SNAPSHOT_EVERY
+    assert rec._should_snapshot() is True
+
+
+def test_no_frame_before_the_capture_really_started(cfg):
+    rec = watched(build(cfg))
+    assert rec.state == 'starting'
+    assert rec._should_snapshot() is False
+
+
+async def test_frames_do_not_pile_up_on_each_other(cfg):
+    rec = watched(build(cfg))
+    rec.state = 'recording'
+    started = asyncio.Event()
+
+    async def slow():
+        started.set()
+        await asyncio.sleep(5)
+
+    rec._snapshot_task = asyncio.create_task(slow())
+    await started.wait()
+    assert rec._should_snapshot() is False
+    await rec._stop_snapshot()
+    assert rec._snapshot_task is None
+
+
+async def test_finalize_cancels_a_frame_in_flight(cfg, monkeypatch):
+    rec = build(cfg)
+    rec.ts_path.parent.mkdir(parents=True, exist_ok=True)
+    rec.ts_path.write_bytes(b'x')
+    thumb = recorder.thumb_path_for(rec.mp4_path)
+    thumb.parent.mkdir(parents=True, exist_ok=True)
+    leftover = thumb.with_name(thumb.stem + '.live.jpg')
+    running = asyncio.Event()
+
+    async def slow_run(_cmd, timeout=None):
+        leftover.write_bytes(b'half a jpeg')
+        running.set()
+        await asyncio.sleep(30)
+        return 0, ''
+
+    monkeypatch.setattr(tools, 'ffmpeg_path', lambda: 'ffmpeg.exe')
+    monkeypatch.setattr(recorder, '_run_quiet', slow_run)
+    rec._snapshot_task = asyncio.create_task(rec._snapshot())
+    await running.wait()
+    await rec._finalize()
+    assert rec._snapshot_task is None
+    assert not leftover.exists()
