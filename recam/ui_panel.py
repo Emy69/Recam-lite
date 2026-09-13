@@ -419,6 +419,27 @@ def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -
         sync()
 
     async def do_stop() -> None:
+        live_rec = monitor.recordings.get(s.key)
+        so_far = (f'{tools.human_duration(live_rec.elapsed)} · {tools.human_size(live_rec.size)}'
+                  if live_rec else '')
+        with ui.dialog() as confirm, ui.card().classes('w-[380px] max-w-full'):
+            ui.label(t('Stop recording {}?', '¿Detener la grabación de {}?').format(s.username))                 .classes('font-medium')
+            if so_far:
+                ui.label(so_far).classes('font-mono text-xs text-gray-400')
+            ui.label(t('The capture so far is saved. Auto-record for this channel '
+                       'pauses for 10 minutes.',
+                       'Lo grabado hasta ahora se guarda. La auto-grabación de este '
+                       'canal queda en pausa 10 minutos.')).classes('text-xs text-gray-500')
+            with ui.row().classes('w-full justify-end gap-2'):
+                ui.button(t('Cancel', 'Cancelar'),
+                          on_click=lambda: confirm.submit(False)).props('flat no-caps')
+                ui.button(t('Stop and save', 'Detener y guardar'), icon='stop',
+                          on_click=lambda: confirm.submit(True))                     .props('unelevated no-caps color=primary')
+        if not await confirm:
+            return
+        if s.key not in monitor.recordings:   # it ended on its own meanwhile
+            sync()
+            return
         notify(t('Stopping… the file gets processed shortly. '
                  'Auto-record for this channel pauses for 10 minutes.',
                  'Deteniendo… el archivo se procesará en unos segundos. '
