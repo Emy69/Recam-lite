@@ -274,9 +274,35 @@ async def test_throttle_penalty_grows_and_is_capped():
     for _ in range(6):
         throttle.report_429()
         seen.append(round(throttle.hold_remaining()))
+        throttle.release()   # the hold ran out, and the site said 429 again
     assert seen[0] == 60
     assert seen[1] == 120
     assert seen[-1] == 900
+
+
+async def test_throttle_counts_a_burst_of_429s_as_one_incident():
+    throttle = platforms._HostThrottle(min_interval=0.01)
+    for _ in range(4):   # requests already in flight when the first 429 landed
+        throttle.report_429()
+    assert round(throttle.hold_remaining()) == 60
+
+
+async def test_throttle_urgent_slot_skips_the_queue():
+    throttle = platforms._HostThrottle(min_interval=0.5)
+    for _ in range(30):   # a pass reserving 15 s worth of slots
+        throttle._next_slot = max(throttle._next_slot, time.monotonic()) + 0.5
+    assert await throttle.slot(max_wait=1) is False
+    start = time.monotonic()
+    assert await throttle.slot(max_wait=1, urgent=True) is True
+    assert time.monotonic() - start < 0.6
+    assert await throttle.slot(max_wait=1, urgent=True) is True   # still spaced out
+    assert time.monotonic() - start >= 0.45
+
+
+async def test_throttle_urgent_slot_still_respects_the_hold():
+    throttle = platforms._HostThrottle(min_interval=0.01)
+    throttle.report_429()
+    assert await throttle.slot(max_wait=1, urgent=True) is False
 
 
 async def test_throttle_forgets_the_penalty_after_a_good_answer():

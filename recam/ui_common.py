@@ -28,16 +28,34 @@ def refresh(refreshable) -> None:
         refreshable.refresh()
 
 
-def copy_to_clipboard(text: str, message: str = '') -> None:
-    # execCommand and not navigator.clipboard: the native window is not a secure context
+async def copy_to_clipboard(text: str, message: str = '') -> None:
+    """Put `text` on the clipboard from a click handler and say so.
+
+    The Clipboard API is the first choice (the app is served from localhost, a
+    secure context). The fallback is a hidden textarea plus execCommand — which
+    must live INSIDE whatever has focus: a Quasar dialog pulls focus back into
+    itself the moment it leaves, so a helper hung off <body> loses the focus
+    before the copy runs and the clipboard gets an empty selection.
+    """
     payload = json.dumps(text)
-    ui.run_javascript(
-        '(function(){const t=' + payload + ';const a=document.createElement("textarea");'
-        'a.value=t;a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);'
-        'a.focus();a.select();try{document.execCommand("copy");}catch(e){}'
-        'document.body.removeChild(a);})();')
-    notify(message or t('Copied to the clipboard', 'Copiado al portapapeles'),
-           type='positive')
+    ok = await ui.run_javascript(
+        '(async function(){const t=' + payload + ';'
+        'try{if(navigator.clipboard&&window.isSecureContext){'
+        'await navigator.clipboard.writeText(t);return true;}}catch(e){}'
+        'const ae=document.activeElement;'
+        'const host=(ae&&ae.closest(".q-dialog__inner,.q-menu"))||document.body;'
+        'const a=document.createElement("textarea");a.value=t;'
+        'a.setAttribute("readonly","");a.style.position="fixed";a.style.opacity="0";'
+        'host.appendChild(a);a.focus();a.select();let ok=false;'
+        'try{ok=document.execCommand("copy");}catch(e){}'
+        'host.removeChild(a);if(ae&&ae.focus)ae.focus();return ok;})()',
+        timeout=3.0)
+    if ok:
+        notify(message or t('Copied to the clipboard', 'Copiado al portapapeles'),
+               type='positive')
+    else:
+        notify(t('Could not copy — select the text and press Ctrl+C',
+                 'No se pudo copiar: selecciona el texto y pulsa Ctrl+C'), type='warning')
 
 
 def live_preview(rec, extra_classes: str = ''):

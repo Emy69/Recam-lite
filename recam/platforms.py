@@ -151,11 +151,17 @@ class _HostThrottle:
     first place; and once the site is limiting us, every extra request extends
     the punishment, so during a hold callers give up fast instead of queueing.
     Single event loop assumed: reservations happen between awaits, so no lock.
+
+    A pass over N channels reserves N slots in a row, so a plain reservation can
+    sit N × min_interval away. Starting a capture must not queue behind that
+    (a live channel would "fail with 429" without the site ever saying so), so
+    urgent reservations take the next free moment and push the queue back.
     """
 
     def __init__(self, min_interval: float) -> None:
         self.min_interval = min_interval
         self._next_slot = 0.0
+        self._last_slot = 0.0
         self._hold_until = 0.0
         self._penalty = 0.0
 
@@ -165,18 +171,30 @@ class _HostThrottle:
     def hold_remaining(self) -> float:
         return max(0.0, self._hold_until - time.monotonic())
 
-    async def slot(self, max_wait: float) -> bool:
-        """Reserve the next request slot; False if it is further than max_wait."""
+    async def slot(self, max_wait: float, urgent: bool = False) -> bool:
+        """Reserve a request slot; False if it is further than max_wait.
+
+        urgent=True skips the queue of ordinary reservations (only the hold and
+        the spacing after the last dispatched request still apply).
+        """
         now = time.monotonic()
-        start = max(now, self._next_slot, self._hold_until)
+        if urgent:
+            start = max(now, self._hold_until, self._last_slot + self.min_interval)
+        else:
+            start = max(now, self._next_slot, self._hold_until)
         if start - now > max_wait:
             return False
-        self._next_slot = start + self.min_interval
+        self._last_slot = start
+        self._next_slot = max(self._next_slot, start) + self.min_interval
         if start > now:
             await asyncio.sleep(start - now)
         return True
 
     def report_429(self) -> None:
+        # requests already in flight when the first 429 lands get 429 too: that is
+        # one incident, not a reason to double the penalty several times over
+        if self.holding():
+            return
         self._penalty = min(max(60.0, self._penalty * 2), 900.0)
         self._hold_until = time.monotonic() + self._penalty
 
@@ -294,7 +312,7 @@ def _ytdlp_resolve_sync(url: str, fmt: str) -> list[str]:
 
 async def resolve_chaturbate_urls(username: str, quality: str) -> list[str]:
     """Fallback resolver: [video, audio] URLs of the public stream, via yt-dlp."""
-    if not await _CB_THROTTLE.slot(max_wait=10):
+    if not await _CB_THROTTLE.slot(max_wait=10, urgent=True):
         raise RateLimited(t('chaturbate is rate limiting (429); retrying in ~{}s',
                             'chaturbate está limitando las peticiones (429); se reintenta en ~{}s')
                           .format(int(_CB_THROTTLE.hold_remaining()) + 1))
@@ -333,7 +351,7 @@ async def resolve_chaturbate_master(username: str, quality: str) -> str:
     common shift and the shared source timeline survives intact (measured: 1.6 s
     of audio lead with two inputs, frame-exact alignment with one).
     """
-    if not await _CB_THROTTLE.slot(max_wait=10):
+    if not await _CB_THROTTLE.slot(max_wait=10, urgent=True):
         raise RateLimited(t('chaturbate is rate limiting (429); retrying in ~{}s',
                             'chaturbate está limitando las peticiones (429); se reintenta en ~{}s')
                           .format(int(_CB_THROTTLE.hold_remaining()) + 1))
