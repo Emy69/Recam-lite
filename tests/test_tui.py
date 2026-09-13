@@ -16,6 +16,8 @@ def monitor(cfg):
     m = Monitor(cfg, [], Library(cfg))
     m.add_streamer('https://chaturbate.com/emy')
     m.add_streamer('https://chaturbate.com/otra')
+    for s in m.streamers:
+        s.auto_record = True   # the keys below toggle from "everyone on"
     m.started = []
     m.stopped = []
 

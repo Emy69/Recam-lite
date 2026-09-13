@@ -43,7 +43,7 @@ def test_add_streamer_accepts_a_channel_url(monitor):
     s = monitor.add_streamer('https://chaturbate.com/emy')
     assert s.username == 'emy'
     assert s.url == 'https://chaturbate.com/emy'
-    assert s.auto_record is True
+    assert s.auto_record is False   # adding a channel is not a decision to record it
     assert [x.username for x in config_mod.load_streamers()] == ['emy']
 
 
@@ -95,6 +95,7 @@ def test_activity_feed_collapses_a_repeated_line(monitor):
 async def test_a_live_channel_with_auto_on_gets_recorded(monitor, monkeypatch,
                                                          no_launch):
     s = monitor.add_streamer('https://chaturbate.com/emy')
+    s.auto_record = True
     probe_returning(monkeypatch, Probe(Status.ONLINE))
     await monitor._check_one(s)
     assert no_launch == ['emy']
@@ -112,6 +113,7 @@ async def test_auto_off_is_never_recorded_on_its_own(monitor, monkeypatch, no_la
 
 async def test_an_unsure_answer_still_gets_a_try(monitor, monkeypatch, no_launch):
     s = monitor.add_streamer('https://chaturbate.com/emy')
+    s.auto_record = True
     probe_returning(monkeypatch, Probe(Status.UNKNOWN))
     await monitor._check_one(s)
     assert no_launch == ['emy']
@@ -120,6 +122,7 @@ async def test_an_unsure_answer_still_gets_a_try(monitor, monkeypatch, no_launch
 async def test_an_unsure_answer_is_dropped_while_rate_limited(monitor, monkeypatch,
                                                               no_launch):
     s = monitor.add_streamer('https://chaturbate.com/emy')
+    s.auto_record = True
     probe_returning(monkeypatch, Probe(Status.UNKNOWN))
     platforms._CB_THROTTLE.report_429()
     await monitor._check_one(s)
@@ -130,6 +133,7 @@ async def test_the_concurrency_cap_is_respected(monitor, monkeypatch, no_launch)
     monitor.cfg.max_concurrent = 1
     first = monitor.add_streamer('https://chaturbate.com/emy')
     second = monitor.add_streamer('https://chaturbate.com/emy2')
+    first.auto_record = second.auto_record = True
     probe_returning(monkeypatch, Probe(Status.ONLINE))
     await monitor._check_one(first)
     await monitor._check_one(second)

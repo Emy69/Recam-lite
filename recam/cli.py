@@ -2,7 +2,7 @@
 
     python -m recam.cli dashboard           # live interactive panel (the nice one)
     python -m recam.cli run                 # headless daemon, Ctrl+C stops it cleanly
-    python -m recam.cli add <url>           # add a channel, auto-record on
+    python -m recam.cli add <url>           # add a channel (auto-record off)
     python -m recam.cli remove <channel>    # drop a channel
     python -m recam.cli auto <channel> on   # toggle auto-record (on|off)
     python -m recam.cli list                # list the channels

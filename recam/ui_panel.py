@@ -144,9 +144,11 @@ def build(monitor: Monitor):
                     ui.notify(str(exc), type='warning')
                     return
                 url_input.value = ''
-                ui.notify(t('{} ({}) added. It gets checked on the next cycle.',
-                            '{} ({}) añadido. Se comprueba en el próximo ciclo.')
-                          .format(s.username, s.platform), type='positive')
+                ui.notify(t('{} added. Turn on Auto-record on its card to capture it '
+                            'whenever it goes live.',
+                            '{} añadido. Activa Auto-grabar en su tarjeta para capturarlo '
+                            'cuando esté en vivo.')
+                          .format(s.username), type='positive')
                 sync()
 
             url_input.on('keydown.enter', add)

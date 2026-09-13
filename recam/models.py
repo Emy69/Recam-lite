@@ -43,7 +43,7 @@ class Streamer:
     url: str
     platform: str
     username: str
-    auto_record: bool = True
+    auto_record: bool = False   # off until the user turns it on: adding is not a decision to record
 
     # the live/offline timeline; these two survive restarts (see to_json)
     last_online: float = 0.0            # last moment we saw a broadcast running
@@ -105,6 +105,6 @@ class Streamer:
     @staticmethod
     def from_json(d: dict) -> 'Streamer':
         return Streamer(url=d['url'], platform=d['platform'],
-                        username=d['username'], auto_record=d.get('auto_record', True),
+                        username=d['username'], auto_record=bool(d.get('auto_record', False)),
                         last_online=float(d.get('last_online', 0) or 0),
                         last_broadcast_start=float(d.get('last_broadcast_start', 0) or 0))
