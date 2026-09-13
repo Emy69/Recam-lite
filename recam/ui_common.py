@@ -6,7 +6,7 @@ import json
 import os
 import urllib.parse
 
-from nicegui import ui
+from nicegui import app, ui
 
 from . import logbook, tools
 from .i18n import t
@@ -26,6 +26,25 @@ def notify(*args, **kwargs) -> None:
 def refresh(refreshable) -> None:
     with contextlib.suppress(Exception):
         refreshable.refresh()
+
+
+async def read_clipboard_text() -> str:
+    """Clipboard text for a paste the user asked for by clicking, or ''.
+
+    The page tries first (a browser on the LAN can ask its own permission); the
+    native window cannot read it from the page at all, so the app reads the
+    Windows clipboard itself. Only the native window gets that fallback: a
+    phone on the LAN must not paste what happens to be on the PC.
+    """
+    text = ''
+    with contextlib.suppress(Exception):
+        text = await ui.run_javascript(
+            '(async function(){try{if(navigator.clipboard&&navigator.clipboard.readText)'
+            '{return await navigator.clipboard.readText();}}catch(e){}return "";})()',
+            timeout=3.0)
+    if not text and getattr(app.native, 'main_window', None):
+        text = tools.read_clipboard()
+    return (text or '').strip()
 
 
 async def copy_to_clipboard(text: str, message: str = '') -> None:

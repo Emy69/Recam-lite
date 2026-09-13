@@ -213,6 +213,37 @@ def tool_version(exe: str) -> str | None:
         return None
 
 
+def read_clipboard() -> str:
+    """The text on the Windows clipboard, or '' (other platforms, no text, busy).
+
+    The native window has no context menu, so pasting by right click goes
+    through here: the page cannot read the clipboard without a permission the
+    embedded browser never grants, but the app process can.
+    """
+    if sys.platform != 'win32':
+        return ''
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    user32.GetClipboardData.restype = ctypes.c_void_p
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    if not user32.OpenClipboard(None):
+        return ''
+    try:
+        handle = user32.GetClipboardData(13)   # CF_UNICODETEXT
+        if not handle:
+            return ''
+        pointer = kernel32.GlobalLock(handle)
+        if not pointer:
+            return ''
+        try:
+            return ctypes.wstring_at(pointer)
+        finally:
+            kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
+
+
 def human_size(num_bytes: float) -> str:
     num_bytes = max(0.0, num_bytes)
     if num_bytes < 1024:

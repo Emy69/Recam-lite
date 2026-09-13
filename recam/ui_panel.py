@@ -14,7 +14,7 @@ from .models import Status, Streamer, state_label, status_label
 from .monitor import Monitor
 from .platforms import clear_rate_limit, rate_limit_remaining, thumbnail_url
 from .ui_common import (copy_to_clipboard, ffmpeg_downloader, live_preview, live_thumbnail,
-                        notify, open_log_file)
+                        notify, open_log_file, read_clipboard_text)
 
 _EVENT_STYLE = {
     'start': ('fiber_manual_record', 'text-rose-600'),
@@ -150,6 +150,23 @@ def build(monitor: Monitor):
                 sync()
 
             url_input.on('keydown.enter', add)
+
+            async def paste(and_add: bool) -> None:
+                text = await read_clipboard_text()
+                if not text:
+                    notify(t('Nothing to paste: copy a channel URL first',
+                             'Nada que pegar: copia antes la URL de un canal'), type='warning')
+                    return
+                url_input.value = text.splitlines()[0].strip()
+                if and_add:
+                    add()
+                else:
+                    url_input.run_method('focus')
+
+            # the native window has no right-click menu of its own
+            with url_input, ui.context_menu():
+                ui.menu_item(t('Paste', 'Pegar'), on_click=lambda: paste(False))
+                ui.menu_item(t('Paste and add', 'Pegar y añadir'), on_click=lambda: paste(True))
             # neutral on purpose: red is reserved for recording
             ui.button(t('Add', 'Añadir'), icon='add', on_click=add) \
                 .props('unelevated no-caps no-wrap color=blue-grey-9').classes('shrink-0')
