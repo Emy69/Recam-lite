@@ -19,6 +19,11 @@ ENCRYPTED_COOLDOWN = 1800   # no point hammering a stream we cannot decrypt
 
 MIN_PAUSE_BETWEEN_PASSES = 5
 
+# an offline channel with auto-record off is only being watched for the Panel, so
+# it is polled this often at most; that keeps a pass short (and under the site's
+# request limit) when most of the list is idle
+WATCH_ONLY_EVERY = 120
+
 
 class Monitor:
     """The engine: polls channels, starts captures and collects them when they end."""
@@ -86,10 +91,16 @@ class Monitor:
                     logbook.event(f'ERROR in the watch cycle: {exc!r}')
             await asyncio.sleep(self._sleep_after_pass(time.monotonic() - started))
 
+    def _wants_check(self, s: Streamer, now: float) -> bool:
+        if s.key in self.recordings or now < s.cooldown_until:
+            return False
+        if s.auto_record or s.is_live or not s.last_check:
+            return True
+        return now - s.last_check >= WATCH_ONLY_EVERY
+
     async def _cycle(self) -> None:
         now = time.time()
-        due = [s for s in list(self.streamers)
-               if s.key not in self.recordings and now >= s.cooldown_until]
+        due = [s for s in list(self.streamers) if self._wants_check(s, now)]
         if due:
             await self._check_many(due, self._check_one)
 

@@ -304,6 +304,29 @@ async def test_throttle_urgent_slot_skips_the_queue():
         f.cancel()
 
 
+async def test_throttle_widens_the_spacing_after_a_429_and_relaxes_later():
+    throttle = platforms._HostThrottle(min_interval=1.0)
+    throttle.report_429()
+    assert throttle.min_interval == 1.5
+    throttle.release()
+    throttle.report_429()
+    assert throttle.min_interval == 2.25
+    for _ in range(10):
+        throttle.release()
+        throttle.report_429()
+    assert throttle.min_interval == throttle.MAX_INTERVAL
+    throttle.release()
+    throttle._last_429 -= throttle.RELAX_AFTER + 1   # an hour of quiet
+    assert await throttle.slot(max_wait=1) is True
+    assert throttle.min_interval == 1.0
+
+
+async def test_throttle_honours_a_longer_retry_after():
+    throttle = platforms._HostThrottle(min_interval=0.01)
+    throttle.report_429(retry_after=300)
+    assert round(throttle.hold_remaining()) == 300
+
+
 async def test_throttle_urgent_slot_still_respects_the_hold():
     throttle = platforms._HostThrottle(min_interval=0.01)
     throttle.report_429()

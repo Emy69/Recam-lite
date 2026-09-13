@@ -91,7 +91,7 @@ async def probe(client: httpx.AsyncClient, platform: str, username: str) -> Prob
                 return Probe(Status.UNKNOWN)   # the hold is long; don't queue behind it
             r = await client.get(f'https://chaturbate.com/api/chatvideocontext/{username}/')
             if r.status_code == 429:
-                _CB_THROTTLE.report_429()
+                _CB_THROTTLE.report_429(_retry_after(r))
                 return Probe(Status.UNKNOWN)
             if r.status_code == 200:
                 _CB_THROTTLE.report_ok()
@@ -158,12 +158,20 @@ class _HostThrottle:
     urgent reservations take the next free moment and push the queue back.
     """
 
+    # after an incident the spacing widens (x1.5 each time, up to 5 s) and only
+    # relaxes back to the base once the site has been quiet for an hour: the real
+    # limit is undocumented, so the spacing has to find it by itself
+    RELAX_AFTER = 3600.0
+    MAX_INTERVAL = 5.0
+
     def __init__(self, min_interval: float) -> None:
+        self.base_interval = min_interval
         self.min_interval = min_interval
         self._next_slot = 0.0
         self._last_sent = 0.0
         self._hold_until = 0.0
         self._penalty = 0.0
+        self._last_429 = 0.0
 
     def holding(self) -> bool:
         return time.monotonic() < self._hold_until
@@ -178,6 +186,8 @@ class _HostThrottle:
         the spacing after the last dispatched request still apply).
         """
         now = time.monotonic()
+        if self.min_interval > self.base_interval and now - self._last_429 > self.RELAX_AFTER:
+            self.min_interval = self.base_interval
         if urgent:
             # behind the last request actually SENT, not the last one reserved:
             # reservations can sit a whole pass ahead
@@ -192,13 +202,16 @@ class _HostThrottle:
         self._last_sent = time.monotonic()
         return True
 
-    def report_429(self) -> None:
+    def report_429(self, retry_after: float = 0.0) -> None:
+        """The site said 429. `retry_after` is its own Retry-After, if it sent one."""
         # requests already in flight when the first 429 lands get 429 too: that is
         # one incident, not a reason to double the penalty several times over
         if self.holding():
             return
+        self._last_429 = time.monotonic()
+        self.min_interval = min(self.min_interval * 1.5, self.MAX_INTERVAL)
         self._penalty = min(max(60.0, self._penalty * 2), 900.0)
-        self._hold_until = time.monotonic() + self._penalty
+        self._hold_until = time.monotonic() + max(self._penalty, retry_after)
 
     def report_ok(self) -> None:
         self._penalty = 0.0
@@ -209,9 +222,17 @@ class _HostThrottle:
         self._hold_until = 0.0
 
 
-# 0.8 s keeps a full pass over ~20 channels under 20 s; the 429 hold below is the
-# safety net if the site turns out to want more room than that
-_CB_THROTTLE = _HostThrottle(min_interval=0.8)
+# 1.5 s is 40 requests a minute at most: 0.8 s earned 429s within a minute with 31
+# channels (the limit is undocumented; ~60/min fits everything seen so far). The
+# monitor keeps passes short by not polling idle watch-only channels every time.
+_CB_THROTTLE = _HostThrottle(min_interval=1.5)
+
+
+def _retry_after(r: httpx.Response) -> float:
+    try:
+        return float(r.headers.get('retry-after', 0))
+    except ValueError:
+        return 0.0
 
 
 def rate_limited(platform: str) -> bool:
@@ -361,7 +382,7 @@ async def resolve_chaturbate_master(username: str, quality: str) -> str:
                                  follow_redirects=True) as client:
         r = await client.get(f'https://chaturbate.com/api/chatvideocontext/{username}/')
         if r.status_code == 429:
-            _CB_THROTTLE.report_429()
+            _CB_THROTTLE.report_429(_retry_after(r))
             raise RateLimited(t('chaturbate answered 429 (too many requests); backing off and retrying',
                                 'chaturbate devolvió 429 (demasiadas peticiones); pausa automática y reintento'))
         if r.status_code != 200:

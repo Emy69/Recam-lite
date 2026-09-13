@@ -252,6 +252,45 @@ async def test_a_cooling_down_channel_is_not_polled(monitor, monkeypatch):
     assert calls == []
 
 
+async def test_an_idle_watch_only_channel_is_polled_less_often(monitor, monkeypatch):
+    s = monitor.add_streamer('https://chaturbate.com/emy')
+    s.auto_record = False
+    s.status = Status.OFFLINE
+    s.last_check = time.time() - 30
+    calls = []
+
+    async def fake_probe(_client, _platform, _username):
+        calls.append(1)
+        return Probe(Status.OFFLINE)
+
+    monkeypatch.setattr(platforms, 'probe', fake_probe)
+    await monitor._cycle()
+    assert calls == []                      # checked half a minute ago: skip
+    s.last_check = time.time() - 200
+    await monitor._cycle()
+    assert calls == [1]                     # two minutes old: due again
+    s.last_check = time.time()
+    s.auto_record = True
+    await monitor._cycle()
+    assert calls == [1, 1]                  # auto-record: every pass
+
+
+async def test_a_live_watch_only_channel_is_polled_every_pass(monitor, monkeypatch):
+    s = monitor.add_streamer('https://chaturbate.com/emy')
+    s.auto_record = False
+    s.status = Status.ONLINE
+    s.last_check = time.time()
+    calls = []
+
+    async def fake_probe(_client, _platform, _username):
+        calls.append(1)
+        return Probe(Status.ONLINE)
+
+    monkeypatch.setattr(platforms, 'probe', fake_probe)
+    await monitor._cycle()
+    assert calls == [1]
+
+
 async def test_the_watch_loop_survives_a_broken_cycle(monitor, monkeypatch):
     monitor.cfg.poll_seconds = 15
 
