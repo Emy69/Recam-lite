@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 
 import pytest
@@ -289,14 +290,18 @@ async def test_throttle_counts_a_burst_of_429s_as_one_incident():
 
 async def test_throttle_urgent_slot_skips_the_queue():
     throttle = platforms._HostThrottle(min_interval=0.5)
-    for _ in range(30):   # a pass reserving 15 s worth of slots
-        throttle._next_slot = max(throttle._next_slot, time.monotonic()) + 0.5
+    # a pass over 30 channels: every probe reserves its slot up front, the way
+    # gather() makes them do, so the queue reaches 15 s into the future
+    probes = [asyncio.ensure_future(throttle.slot(max_wait=60)) for _ in range(30)]
+    await asyncio.sleep(0)
     assert await throttle.slot(max_wait=1) is False
     start = time.monotonic()
     assert await throttle.slot(max_wait=1, urgent=True) is True
     assert time.monotonic() - start < 0.6
     assert await throttle.slot(max_wait=1, urgent=True) is True   # still spaced out
     assert time.monotonic() - start >= 0.45
+    for f in probes:
+        f.cancel()
 
 
 async def test_throttle_urgent_slot_still_respects_the_hold():

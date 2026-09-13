@@ -161,7 +161,7 @@ class _HostThrottle:
     def __init__(self, min_interval: float) -> None:
         self.min_interval = min_interval
         self._next_slot = 0.0
-        self._last_slot = 0.0
+        self._last_sent = 0.0
         self._hold_until = 0.0
         self._penalty = 0.0
 
@@ -179,15 +179,17 @@ class _HostThrottle:
         """
         now = time.monotonic()
         if urgent:
-            start = max(now, self._hold_until, self._last_slot + self.min_interval)
+            # behind the last request actually SENT, not the last one reserved:
+            # reservations can sit a whole pass ahead
+            start = max(now, self._hold_until, self._last_sent + self.min_interval)
         else:
             start = max(now, self._next_slot, self._hold_until)
         if start - now > max_wait:
             return False
-        self._last_slot = start
         self._next_slot = max(self._next_slot, start) + self.min_interval
         if start > now:
             await asyncio.sleep(start - now)
+        self._last_sent = time.monotonic()
         return True
 
     def report_429(self) -> None:
