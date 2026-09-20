@@ -101,6 +101,12 @@ class Monitor:
     async def _cycle(self) -> None:
         now = time.time()
         due = [s for s in list(self.streamers) if self._wants_check(s, now)]
+        # A pass can be longer than the throttle's window, and whoever is at the
+        # back gets turned away. Going by who has waited longest rotates that
+        # tail to the front next time, so a long list is polled slower but
+        # evenly, instead of the same bottom names never being looked at.
+        # Channels that could start a capture keep their head start.
+        due.sort(key=lambda s: (not (s.auto_record or s.is_live), s.last_check))
         if due:
             await self._check_many(due, self._check_one)
 
@@ -130,8 +136,14 @@ class Monitor:
     async def _check_one(self, streamer: Streamer) -> None:
         # no jitter here: the per-host throttle already spaces the requests out
         probe = await platforms.probe(self.client, streamer.platform, streamer.username)
-        streamer.last_check = time.time()
         self._count_check()
+        if not probe.asked:
+            # Nothing was asked, so nothing was learned: leave last_check alone
+            # and this channel leads the next pass. Falling through would be
+            # worse than useless — the capture attempt below resolves the same
+            # endpoint the poll just skipped, and it jumps the queue to do it.
+            return
+        streamer.last_check = time.time()
         if streamer.key in self.recordings:
             return
         if self._apply_probe(streamer, probe):
@@ -221,8 +233,10 @@ class Monitor:
 
     async def manual_check(self, streamer: Streamer) -> Status:
         probe = await platforms.probe(self.client, streamer.platform, streamer.username)
-        streamer.last_check = time.time()
         self._count_check()
+        if not probe.asked:
+            return probe.status
+        streamer.last_check = time.time()
         if streamer.key not in self.recordings and self._apply_probe(streamer, probe):
             config_mod.save_streamers(self.streamers)
         return probe.status

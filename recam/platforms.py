@@ -69,6 +69,11 @@ class Probe:
     status: Status
     started_at: float = 0.0   # broadcast start the site reported (unix seconds), if any
     viewers: int = 0
+    # False when the throttle turned the poll away before it left the building.
+    # UNKNOWN then means "we never asked", not "the site would not say", and the
+    # two must not be treated alike: trying anyway would spend, through the
+    # priority lane, the very request the throttle just refused.
+    asked: bool = True
 
 
 async def probe(client: httpx.AsyncClient, platform: str, username: str) -> Probe:
@@ -88,7 +93,8 @@ async def probe(client: httpx.AsyncClient, platform: str, username: str) -> Prob
                 return Probe(Status.ONLINE if r.json().get('livestream') else Status.OFFLINE)
         elif platform == 'chaturbate':
             if not await _CB_THROTTLE.slot(max_wait=30):
-                return Probe(Status.UNKNOWN)   # the hold is long; don't queue behind it
+                # the queue is longer than the window; say so instead of pretending
+                return Probe(Status.UNKNOWN, asked=False)
             r = await client.get(f'https://chaturbate.com/api/chatvideocontext/{username}/')
             if r.status_code == 429:
                 _CB_THROTTLE.report_429(_retry_after(r))
