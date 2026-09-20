@@ -26,8 +26,8 @@ def beta_notice(cfg: config_mod.Config, on_tutorial) -> ui.dialog:
                                            'flex-none'):
                 ui.icon('radio_button_checked', size='md').classes('text-rose-600')
             with ui.column().classes('gap-0.5 min-w-0'):
-                ui.label(t('Welcome to the Recam test build',
-                           'Bienvenido a la versión de prueba de Recam')) \
+                ui.label(t('Welcome to the free version of Recam',
+                           'Bienvenido a la versión gratuita de Recam')) \
                     .classes('text-[15px] font-semibold')
                 ui.label(t('v{} · records Chaturbate only for now',
                            'v{} · por ahora solo graba Chaturbate').format(__version__)) \

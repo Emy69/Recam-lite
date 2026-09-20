@@ -338,10 +338,10 @@ def build(cfg: config_mod.Config, monitor: Monitor) -> None:
                     if mascot.exists():
                         ui.image(str(mascot)).classes('w-11 h-11 rounded-full flex-none')
                     with ui.column().classes('grow min-w-0 gap-1.5'):
-                        ui.label(t('Recam v{} · test build · made by {}. If something breaks '
+                        ui.label(t('Recam v{} · free version · made by {}. If something breaks '
                                    'or confuses you, say so: that is what moves development '
                                    'forward.',
-                                   'Recam v{} · versión de prueba · hecho por {}. Si algo '
+                                   'Recam v{} · versión gratuita · hecho por {}. Si algo '
                                    'falla o confunde, cuéntalo: es lo que hace avanzar el '
                                    'desarrollo.').format(__version__, AUTHOR)) \
                             .classes('text-xs text-gray-400')

@@ -250,9 +250,9 @@ class Monitor:
         detected = platforms.detect(text)
         if not detected:
             raise ValueError(t('That does not look like a Chaturbate channel URL. '
-                               'This test build records Chaturbate only.',
+                               'This free version records Chaturbate only.',
                                'Eso no parece una URL de canal de Chaturbate. '
-                               'Esta versión de prueba solo graba Chaturbate.'))
+                               'Esta versión gratuita solo graba Chaturbate.'))
         platform, username = detected
         streamer = Streamer(url=platforms.canonical_url(platform, username),
                             platform=platform, username=username)

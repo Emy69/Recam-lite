@@ -136,7 +136,7 @@ async def test_the_url_box_turns_down_a_site_this_build_does_not_record(
     user.find('Add').click()
     # which sites the sentence names differs per build; that it explains itself,
     # in the reader's language, is what has to hold
-    await user.should_see('This test build records')
+    await user.should_see('That does not look like a')
     assert monitor.streamers == []
 
 
@@ -290,7 +290,7 @@ async def test_the_welcome_can_be_turned_off_for_good(user, cfg):
         ui_dialogs.beta_notice(cfg, lambda: None).open()
 
     await user.open('/')
-    await user.should_see('Welcome to the Recam test build')
+    await user.should_see('Welcome to')
     user.find(ui.checkbox).click()
     user.find('OK').click()
 
@@ -340,4 +340,4 @@ async def test_a_refusal_is_translated_too(user, cfg, monkeypatch):
     await user.open('/')
     user.find(ui.input).type(url_this_build_refuses())
     user.find('Añadir').click()
-    await user.should_see('Esta versión de prueba solo graba')
+    await user.should_see('Eso no parece una URL de canal')

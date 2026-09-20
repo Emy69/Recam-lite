@@ -2,7 +2,7 @@
 
 **v0.2.0** · [Changelog](CHANGELOG.md)
 
-> **⚠ Test build.** This is an early test version and it records **Chaturbate only** for now. Expect rough edges — anything you can report back (bugs, confusing bits, ideas) genuinely helps development move forward. Thank you for testing!
+> **⚠ Free version.** This is an early version and it records **Chaturbate only** for now. Expect rough edges — anything you can report back (bugs, confusing bits, ideas) genuinely helps development move forward. Thank you for testing!
 
 A desktop app that watches **Chaturbate** channels, records their streams automatically the moment they go live, and helps you organize the results: live preview while recording, thumbnails, in-app playback with resume, renaming, filtering, and a recycle-bin-safe delete. The interface is NiceGUI in a native window, but the engine runs just as well without it. (Support for more platforms is already inside the engine and planned for later builds.)
 
@@ -89,7 +89,7 @@ Neither goes into the repository.
 
 ## Author & feedback
 
-Made by **Emy69**. This is an early test build — follow the project and send feedback:
+Made by **Emy69**. This is the free version — follow the project and send feedback:
 
 - Patreon: https://www.patreon.com/c/emy69
 - Discord: https://discord.com/invite/ku8gSPsesh
