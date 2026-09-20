@@ -97,20 +97,49 @@ def save(cfg: Config) -> None:
                            encoding='utf-8')
 
 
+# Channels saved on a platform this build does not record — a list written by a
+# build that enabled more sites, or edited by hand. The gate on adding a channel
+# never sees these, so without this they would be polled and recorded anyway.
+#
+# They are held aside rather than dropped: the list belongs to whoever wrote it,
+# and a build that does enable the site has to find them again. load_streamers()
+# keeps them out of the engine and save_streamers() puts them back in the file.
+_parked: list[dict] = []
+
+
 def load_streamers() -> list[Streamer]:
-    if STREAMERS_FILE.exists():
-        try:
-            data = json.loads(STREAMERS_FILE.read_text(encoding='utf-8'))
-            return [Streamer.from_json(d) for d in data]
-        except Exception:
-            pass
-    return []
+    """The channels this build can actually record. See _parked for the rest."""
+    global _parked
+    _parked = []
+    if not STREAMERS_FILE.exists():
+        return []
+    # at call time, not at import: logbook imports this module, so naming either
+    # of these at the top would be a cycle
+    from . import platforms
+    try:
+        data = json.loads(STREAMERS_FILE.read_text(encoding='utf-8'))
+        kept, parked = [], []
+        for entry in data:
+            if entry.get('platform') in platforms.ENABLED_PLATFORMS:
+                kept.append(Streamer.from_json(entry))
+            else:
+                parked.append(entry)
+    except Exception:
+        return []
+    _parked = parked
+    if parked:
+        sites = sorted({str(e.get('platform')) for e in parked})
+        from . import logbook
+        logbook.event(f'{len(parked)} channel(s) on {", ".join(sites)} are in the list '
+                      f'but this build does not record them: left alone, not polled')
+    return kept
 
 
 def save_streamers(streamers: list[Streamer]) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     STREAMERS_FILE.write_text(
-        json.dumps([s.to_json() for s in streamers], indent=2, ensure_ascii=False),
+        json.dumps([s.to_json() for s in streamers] + _parked,
+                   indent=2, ensure_ascii=False),
         encoding='utf-8')
 
 

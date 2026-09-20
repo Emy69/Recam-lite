@@ -8,6 +8,7 @@ exe would not ship, a string that lost one of its two languages.
 from __future__ import annotations
 
 import ast
+import json
 import re
 import string
 import sys
@@ -16,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from recam import __version__, platforms, ui_panel
+from recam import config as config_mod
 from recam.monitor import Monitor
 
 from conftest import SAMPLE_URLS, disabled_platforms
@@ -60,6 +62,54 @@ def test_a_disabled_platform_cannot_be_added(platform, cfg):
     with pytest.raises(ValueError):
         monitor.add_streamer(SAMPLE_URLS[platform])
     assert monitor.streamers == []
+
+
+@pytest.mark.parametrize('platform', DISABLED)
+def test_a_saved_channel_on_a_disabled_platform_is_not_loaded(platform, isolated):
+    """The gate on adding a channel does not cover a list already on disk — one
+    written by a build that enabled more sites, or edited by hand. Without this
+    the free build would poll and record a site it does not offer."""
+    config_mod.STREAMERS_FILE.write_text(json.dumps([
+        {'url': SAMPLE_URLS['chaturbate'], 'platform': 'chaturbate',
+         'username': 'emy', 'auto_record': True},
+        {'url': SAMPLE_URLS[platform], 'platform': platform,
+         'username': 'other', 'auto_record': True},
+    ]), encoding='utf-8')
+
+    loaded = config_mod.load_streamers()
+
+    assert [s.username for s in loaded] == ['emy']
+    assert all(s.platform in platforms.ENABLED_PLATFORMS for s in loaded)
+
+
+@pytest.mark.parametrize('platform', DISABLED)
+def test_a_channel_this_build_ignores_survives_being_saved_over(platform, isolated):
+    """Held aside, not dropped: the list belongs to whoever wrote it, and a
+    build that does enable the site has to find them again."""
+    parked = {'url': SAMPLE_URLS[platform], 'platform': platform,
+              'username': 'other', 'auto_record': True}
+    config_mod.STREAMERS_FILE.write_text(json.dumps([
+        {'url': SAMPLE_URLS['chaturbate'], 'platform': 'chaturbate',
+         'username': 'emy', 'auto_record': True},
+        parked,
+    ]), encoding='utf-8')
+
+    loaded = config_mod.load_streamers()
+    config_mod.save_streamers(loaded)          # what every add, remove and poll does
+
+    on_disk = json.loads(config_mod.STREAMERS_FILE.read_text(encoding='utf-8'))
+    assert parked in on_disk
+    assert {entry['username'] for entry in on_disk} == {'emy', 'other'}
+    # and the reload still hands the engine only what it can record
+    assert [s.username for s in config_mod.load_streamers()] == ['emy']
+
+
+def test_saving_a_list_that_was_never_loaded_invents_nothing(isolated, streamer):
+    """save_streamers is called from places that never loaded; the held-aside
+    list must not be a leftover from whatever ran before."""
+    config_mod.save_streamers([streamer])
+    on_disk = json.loads(config_mod.STREAMERS_FILE.read_text(encoding='utf-8'))
+    assert [entry['username'] for entry in on_disk] == [streamer.username]
 
 
 @pytest.mark.parametrize('platform', platforms.ENABLED_PLATFORMS)

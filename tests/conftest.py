@@ -36,6 +36,9 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(config_mod, 'DATA_DIR', data)
     monkeypatch.setattr(config_mod, 'CONFIG_FILE', data / 'config.json')
     monkeypatch.setattr(config_mod, 'STREAMERS_FILE', data / 'streamers.json')
+    # channels a build cannot record are held here between load and save;
+    # process-wide state, so one test must not hand it to the next
+    monkeypatch.setattr(config_mod, '_parked', [])
     monkeypatch.setattr(config_mod, 'Config', IsolatedConfig)
     monkeypatch.setattr(status_mod, 'STATUS_FILE', data / 'status.json')
     monkeypatch.setattr(status_mod, 'COMMANDS_DIR', data / 'commands')
