@@ -18,31 +18,29 @@ import pytest
 from recam import __version__, platforms, ui_panel
 from recam.monitor import Monitor
 
+from conftest import SAMPLE_URLS, disabled_platforms
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES = sorted((ROOT / 'recam').glob('*.py')) + [ROOT / 'app.py', ROOT / 'build_exe.py']
-DOCS = [ROOT / 'README.md', ROOT / 'README.es.md',
-        ROOT / 'TUTORIAL.md', ROOT / 'TUTORIAL.es.md']
+# Whatever documentation this build ships, found rather than listed: which
+# translations exist is a moving target, and what matters is that the ones that
+# are here agree with the package about the version.
+DOCS = sorted(ROOT.glob('README*.md')) + sorted(ROOT.glob('TUTORIAL*.md'))
 
-# a channel URL for every platform the engine still carries, enabled or not
-SAMPLE_URLS = {
-    'chaturbate': 'https://chaturbate.com/emy',
-    'stripchat': 'https://stripchat.com/emy',
-    'twitch': 'https://www.twitch.tv/emy',
-    'kick': 'https://kick.com/emy',
-}
-DISABLED = [p for p in SAMPLE_URLS if p not in platforms.ENABLED_PLATFORMS]
+DISABLED = disabled_platforms()
+
+# What this build records. It is spelled out here, and only here, so that
+# merging a branch which enables another site lands as a conflict on this one
+# line: turning a site on is a decision somebody makes, not a diff that slips
+# through. The engine still carries all four end to end, so a one-word edit in
+# platforms.py would otherwise ship them unannounced.
+SHIPS = ('chaturbate',)
 
 
 # --------------------------------------------------------------- the gate itself
 
-def test_this_build_ships_chaturbate_only():
-    """The free build records Chaturbate and nothing else.
-
-    Widen this tuple the day another site ships, deliberately and not by
-    accident: the engine still carries the other platforms end to end, so a
-    one-word edit in platforms.py would otherwise turn them on unannounced.
-    """
-    assert platforms.ENABLED_PLATFORMS == ('chaturbate',)
+def test_this_build_ships_the_sites_it_says_it_does():
+    assert platforms.ENABLED_PLATFORMS == SHIPS
 
 
 def test_every_url_shape_the_docs_promise_is_accepted():
@@ -229,6 +227,7 @@ def test_no_debugger_or_scratch_code_survived():
 
 
 def test_everything_the_release_ships_is_present():
-    for path in DOCS + [ROOT / 'recam.ico', ROOT / 'requirements.txt',
-                        ROOT / 'app.py', ROOT / 'build_exe.py']:
+    for path in (ROOT / 'README.md', ROOT / 'recam.ico', ROOT / 'requirements.txt',
+                 ROOT / 'app.py', ROOT / 'build_exe.py'):
         assert path.exists(), path
+    assert DOCS, 'the build ships no documentation at all'

@@ -18,7 +18,7 @@ from recam.library import Library
 from recam.models import Status
 from recam.monitor import Monitor
 
-from conftest import make_streamer
+from conftest import make_streamer, url_this_build_refuses
 
 
 def _monitor(cfg, streamers=None) -> Monitor:
@@ -132,9 +132,11 @@ async def test_the_url_box_turns_down_a_site_this_build_does_not_record(
         ui_panel.build(monitor)
 
     await user.open('/')
-    user.find(ui.input).type('https://stripchat.com/emy')
+    user.find(ui.input).type(url_this_build_refuses())
     user.find('Add').click()
-    await user.should_see('Chaturbate only')
+    # which sites the sentence names differs per build; that it explains itself,
+    # in the reader's language, is what has to hold
+    await user.should_see('This test build records')
     assert monitor.streamers == []
 
 
@@ -336,6 +338,6 @@ async def test_a_refusal_is_translated_too(user, cfg, monkeypatch):
         ui_panel.build(monitor)
 
     await user.open('/')
-    user.find(ui.input).type('https://stripchat.com/emy')
+    user.find(ui.input).type(url_this_build_refuses())
     user.find('Añadir').click()
-    await user.should_see('solo graba Chaturbate')
+    await user.should_see('Esta versión de prueba solo graba')

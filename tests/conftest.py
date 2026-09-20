@@ -139,6 +139,30 @@ def fake_http(monkeypatch):
     return install
 
 
+# a channel URL for every platform the engine carries, enabled or not
+SAMPLE_URLS = {
+    'chaturbate': 'https://chaturbate.com/emy',
+    'stripchat': 'https://stripchat.com/emy',
+    'twitch': 'https://www.twitch.tv/emy',
+    'kick': 'https://kick.com/emy',
+}
+
+
+def disabled_platforms() -> list[str]:
+    return [name for name in SAMPLE_URLS if name not in platforms.ENABLED_PLATFORMS]
+
+
+def url_this_build_refuses() -> str:
+    """A channel URL on a site this build does not record.
+
+    Which site that is depends on the branch, so the tests about the gate ask
+    here instead of naming one and going stale the day it ships.
+    """
+    disabled = disabled_platforms()
+    assert disabled, 'every platform is enabled; there is no gate left to test'
+    return SAMPLE_URLS[disabled[0]]
+
+
 @pytest.fixture
 async def user():
     """A simulated browser client, for the tests that build real UI pages.
