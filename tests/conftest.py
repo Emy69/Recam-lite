@@ -139,6 +139,20 @@ def fake_http(monkeypatch):
     return install
 
 
+@pytest.fixture
+async def user():
+    """A simulated browser client, for the tests that build real UI pages.
+
+    NiceGUI ships this fixture in `nicegui.testing.user_plugin`, but that
+    plugin's teardown reads `caplog`, which `-p no:logging` takes away. Driving
+    `user_simulation` ourselves keeps the quiet log output and needs no
+    selenium. Register pages inside the test: the context resets NiceGUI's
+    globals on entry, so anything registered before it would be wiped.
+    """
+    from nicegui.testing.user_simulation import user_simulation
+    async with user_simulation() as simulated:
+        yield simulated
+
 async def let_tasks_run(times: int = 3) -> None:
     for _ in range(times):
         await asyncio.sleep(0)
