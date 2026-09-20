@@ -1,6 +1,6 @@
 # Recam
 
-**v0.0.1**
+**v0.2.0** · [Changelog](CHANGELOG.md)
 
 > **⚠ Test build.** This is an early test version and it records **Chaturbate only** for now. Expect rough edges — anything you can report back (bugs, confusing bits, ideas) genuinely helps development move forward. Thank you for testing!
 

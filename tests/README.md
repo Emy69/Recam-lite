@@ -10,10 +10,10 @@ configuration, channel list, log or recordings.
 
 ```
 .venv\Scripts\pip install -r requirements-dev.txt
-test.bat
+.venv\Scripts\python.exe -m pytest
 ```
 
-or `python -m pytest`, `python -m pytest tests/test_platforms.py -k master`, …
+or `python -m pytest tests/test_platforms.py -k master`, … to narrow it down.
 
 ## Layout
 
@@ -40,8 +40,8 @@ or `python -m pytest`, `python -m pytest tests/test_platforms.py -k master`, …
 - another site slips into `ENABLED_PLATFORMS`, or a disabled one becomes
   addable again — this build records Chaturbate only
 - an enabled platform is only half-wired (no colour, no tile tag, no poll)
-- `__version__` is bumped but a hard-coded `v0.0.1` is left behind in the
-  READMEs, the tutorials or the CLI banner (six spots today)
+- `__version__` is bumped but a hard-coded version is left behind in the README
+  or the CLI banner (three spots today)
 - the code imports a package `build_exe.py` does not freeze, or imports one it
   excludes — an exe that only dies on someone else's machine
 - a `t()` string loses one of its two languages, or the two halves disagree on

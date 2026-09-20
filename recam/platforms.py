@@ -25,7 +25,7 @@ PLATFORM_COLORS = {
     'stripchat': '#E6224B',
 }
 
-# The 0.0.1 test build ships Chaturbate-only. The engine still carries the other
+# This build ships Chaturbate-only. The engine still carries the other
 # platforms end to end; putting them back is just widening this tuple (and
 # restoring the add-channel wording in monitor/ui_panel).
 ENABLED_PLATFORMS: tuple[str, ...] = ('chaturbate',)
