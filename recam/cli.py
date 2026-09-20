@@ -116,8 +116,8 @@ def cmd_status(_args: argparse.Namespace) -> int:
 def cmd_now(_args: argparse.Namespace) -> int:
     data = status_mod.read()
     if not data:
-        print(t('No state file. Is the daemon (recam-cli run) or the app running?',
-                'No hay estado. ¿Está corriendo el daemon (recam-cli run) o la app?'))
+        print(t('No state file. Is the daemon (python -m recam.cli run) or the app running?',
+                'No hay estado. ¿Está corriendo el daemon (python -m recam.cli run) o la app?'))
         return 1
     age = time.time() - data.get('ts', 0)
     if age > STALE_AFTER:
@@ -176,9 +176,9 @@ def cmd_stop(args: argparse.Namespace) -> int:
     everything = channel.lower() in ('all', '*')
     data = status_mod.read()
     if not data or time.time() - data.get('ts', 0) > STALE_AFTER:
-        print(t('⚠ The daemon does not look running (recam-cli run). '
+        print(t('⚠ The daemon does not look running (python -m recam.cli run). '
                 'The order stays queued until it starts.',
-                '⚠ El daemon no parece estar corriendo (recam-cli run). '
+                '⚠ El daemon no parece estar corriendo (python -m recam.cli run). '
                 'La orden quedará pendiente hasta que arranque.'))
     elif not everything:
         recording = {r['user'].lower() for r in data.get('recording', [])}

@@ -1,7 +1,7 @@
 """Live dashboard in the terminal: see everything and drive it with the keyboard.
 
 Runs the engine in this process, exactly like the GUI does. Do not leave it up
-next to `recam-cli run` or both would record the same channels.
+next to `python -m recam.cli run` or both would record the same channels.
 """
 from __future__ import annotations
 

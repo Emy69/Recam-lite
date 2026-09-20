@@ -94,7 +94,7 @@ def _install_loop_exception_handler() -> None:
 
 
 async def _status_writer() -> None:
-    """Keep data/status.json warm so `recam-cli now` works while the GUI runs."""
+    """Keep data/status.json warm so `python -m recam.cli now` works while the GUI runs."""
     while True:
         status.write(monitor)
         await asyncio.sleep(5)
