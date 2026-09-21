@@ -213,8 +213,14 @@ def index() -> None:
     activity = ui_panel.build_activity(monitor)
 
     with ui.header().classes('items-center gap-2 px-4 h-[52px]'):
-        ui.icon('radio_button_checked').classes('text-xl text-rose-600')
-        ui.label('Recam').classes('text-[15px] font-semibold tracking-tight mr-4')
+        # Not in the native window: its own title bar shows the same dot and the
+        # same word 56px above this one, so repeating them here spends 73px of
+        # the bar saying what the OS is already saying. A browser tab puts the
+        # title in the tab strip instead of over the page, so on a phone over
+        # LAN this header is the only thing naming the app, and it keeps them.
+        if not NATIVE:
+            ui.icon('radio_button_checked').classes('text-xl text-rose-600')
+            ui.label('Recam').classes('text-[15px] font-semibold tracking-tight mr-4')
         with ui.tabs().props('dense no-caps inline-label indicator-color=primary '
                              'active-color=white').classes('h-[52px]') as tabs:
             tab_panel = ui.tab(t('Panel', 'Panel'), icon='monitor_heart')
