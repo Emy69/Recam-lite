@@ -170,7 +170,8 @@ class _HostThrottle:
     RELAX_AFTER = 3600.0
     MAX_INTERVAL = 5.0
 
-    def __init__(self, min_interval: float) -> None:
+    def __init__(self, min_interval: float, name: str = 'the site') -> None:
+        self.name = name
         self.base_interval = min_interval
         self.min_interval = min_interval
         self._next_slot = 0.0
@@ -218,6 +219,15 @@ class _HostThrottle:
         self.min_interval = min(self.min_interval * 1.5, self.MAX_INTERVAL)
         self._penalty = min(max(60.0, self._penalty * 2), 900.0)
         self._hold_until = time.monotonic() + max(self._penalty, retry_after)
+        # Only a 429 met while LAUNCHING a capture used to reach the log, so a
+        # 429 met while polling raised the banner and left no trace at all —
+        # the one case where you most want to know what the spacing was.
+        from . import logbook
+        # a throttle with no spacing at all has no rate to quote (the tests use one)
+        rate = f' ({60 / self.min_interval:.0f} req/min)' if self.min_interval > 0 else ''
+        logbook.event(f'RATE LIMIT 429 from {self.name}: holding '
+                      f'{self._hold_until - time.monotonic():.0f}s, spacing widened to '
+                      f'{self.min_interval:.2f}s{rate}')
 
     def report_ok(self) -> None:
         self._penalty = 0.0
@@ -231,7 +241,7 @@ class _HostThrottle:
 # 1.5 s is 40 requests a minute at most: 0.8 s earned 429s within a minute with 31
 # channels (the limit is undocumented; ~60/min fits everything seen so far). The
 # monitor keeps passes short by not polling idle watch-only channels every time.
-_CB_THROTTLE = _HostThrottle(min_interval=1.5)
+_CB_THROTTLE = _HostThrottle(min_interval=1.5, name='chaturbate')
 
 
 def _retry_after(r: httpx.Response) -> float:

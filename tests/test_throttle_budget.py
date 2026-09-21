@@ -16,7 +16,7 @@ import types
 
 import pytest
 
-from recam import platforms, tools
+from recam import logbook, platforms, tools
 from recam.library import Library
 from recam.models import Status, Streamer
 from recam.monitor import Monitor
@@ -184,6 +184,33 @@ async def test_the_channels_turned_away_lead_the_next_pass(cfg, sent, monkeypatc
     assert len(second_pass) == 3
     assert set(first_pass).isdisjoint(second_pass)       # nobody polled twice
     assert set(first_pass) | set(second_pass) == {f'user{i}' for i in range(6)}
+
+
+# ------------------------------------------------------------ leaving a trace
+
+def test_a_429_leaves_something_to_read_back(cfg):
+    """Only a 429 met while LAUNCHING a capture used to reach the log. One met
+    while polling raised the banner and logged nothing, so the one question
+    worth asking afterwards — what spacing was it using? — had no answer."""
+    throttle = platforms._HostThrottle(min_interval=1.5, name='chaturbate')
+
+    throttle.report_429()
+
+    written = logbook.LOG_FILE.read_text(encoding='utf-8')
+    assert 'RATE LIMIT 429' in written
+    assert 'chaturbate' in written
+    assert 'req/min' in written        # the number you tune on
+    assert '2.25' in written           # and that the spacing did widen
+
+
+def test_a_throttle_with_no_spacing_still_reports(cfg):
+    """The fixtures run with min_interval=0 to take the spacing out of the way.
+    Quoting a rate for that one divides by zero."""
+    throttle = platforms._HostThrottle(min_interval=0.0, name='chaturbate')
+
+    throttle.report_429()                              # must not raise
+
+    assert 'RATE LIMIT 429' in logbook.LOG_FILE.read_text(encoding='utf-8')
 
 
 # ------------------------------------------------------- the budget, end to end
