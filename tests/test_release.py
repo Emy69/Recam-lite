@@ -141,6 +141,14 @@ def test_a_chaturbate_room_has_a_preview_thumbnail():
     assert platforms.thumbnail_url('chaturbate', 'emy')
 
 
+def test_no_real_channel_is_baked_into_the_source():
+    """The filename-template preview needs a sample name. It once held a real
+    channel from the author's own list, which then shipped inside every build.
+    """
+    settings = (ROOT / 'recam' / 'ui_settings.py').read_text(encoding='utf-8')
+    assert "username='streamer'" in settings
+
+
 # ------------------------------------------------------------ the version string
 
 VERSION_IN_TEXT = re.compile(r'v(\d+\.\d+(?:\.\d+)?)')
