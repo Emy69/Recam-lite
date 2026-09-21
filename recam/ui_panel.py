@@ -467,8 +467,21 @@ def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -
         sync()
 
     async def do_check() -> None:
-        status = await monitor.manual_check(s)
-        notify(f'{s.username}: {status_label(status)[0]}', type='info')
+        check_btn.props('loading')          # the throttle can hold this a while
+        try:
+            probe = await monitor.manual_check(s)
+        finally:
+            check_btn.props(remove='loading')
+        if not probe.asked:
+            # Nothing was asked, so there is no answer. Printing UNKNOWN here
+            # would have the button reply to a question it never put.
+            notify(t('Could not check {} yet: the site is being given room. '
+                     'It goes first in the next round.',
+                     'Aun no se pudo comprobar a {}: se le esta dando margen al '
+                     'sitio. Va primero en la proxima ronda.')
+                   .format(s.username), type='warning')
+            return
+        notify(f'{s.username}: {status_label(probe.status)[0]}', type='info')
         sync()
 
     async def do_remove() -> None:
@@ -582,9 +595,9 @@ def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -
                               'Instala ffmpeg primero (Ajustes › Herramientas)'))
                     else:
                         record.tooltip(t('Record now', 'Grabar ahora'))
-                ui.button(icon='refresh', on_click=do_check) \
-                    .props('flat dense size=sm color=grey-5') \
-                    .tooltip(t('Check status', 'Comprobar estado'))
+                check_btn = ui.button(icon='refresh', on_click=do_check)
+                check_btn.props('flat dense size=sm color=grey-5')
+                check_btn.tooltip(t('Check status', 'Comprobar estado'))
                 with ui.button(icon='more_horiz').props('flat dense size=sm color=grey-5'):
                     with ui.menu():
                         ui.menu_item(t('View log', 'Ver registro'), on_click=show_log)

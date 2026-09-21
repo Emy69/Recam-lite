@@ -16,6 +16,7 @@ from recam import config as config_mod
 from recam import i18n, tools, ui_dialogs, ui_library, ui_panel, ui_settings, ui_tutorial
 from recam.library import Library
 from recam.models import Status
+from recam.platforms import Probe
 from recam.monitor import Monitor
 
 from conftest import make_streamer, url_this_build_refuses
@@ -179,6 +180,55 @@ async def test_the_activity_drawer_lists_what_happened(user, cfg, monkeypatch):
 
     await user.open('/')
     await user.should_see('Saved 12 min of emy')
+
+
+def _tile_check_button(user):
+    """The refresh button on a channel tile: icon only, so it is told apart
+    from the banner's 'Retry now', which carries a label."""
+    from nicegui.testing.user_interaction import UserInteraction
+    button = next(e for e in user.find(ui.button).elements
+                  if e.props.get('icon') == 'refresh' and not e.text)
+    return UserInteraction(user, {button}, None)
+
+
+async def test_checking_one_channel_reports_what_the_site_said(
+        user, cfg, monkeypatch):
+    async def answered(_client, _platform, _username):
+        return Probe(Status.ONLINE)
+
+    monkeypatch.setattr('recam.platforms.probe', answered)
+    _have_ffmpeg(monkeypatch)
+    monitor = _monitor(cfg, [make_streamer('emy')])
+
+    @ui.page('/')
+    def page():
+        ui_panel.build(monitor)
+
+    await user.open('/')
+    _tile_check_button(user).click()
+    await user.should_see('emy:')
+
+
+async def test_checking_one_channel_admits_when_it_could_not_ask(
+        user, cfg, monkeypatch):
+    """A poll the throttle turned away is not an answer. Printing the usual
+    UNKNOWN would have the button reply to a question it never put — and the
+    one thing someone pressing it wants is to know whether it asked."""
+    async def turned_away(_client, _platform, _username):
+        return Probe(Status.UNKNOWN, asked=False)
+
+    monkeypatch.setattr('recam.platforms.probe', turned_away)
+    _have_ffmpeg(monkeypatch)
+    monitor = _monitor(cfg, [make_streamer('emy')])
+
+    @ui.page('/')
+    def page():
+        ui_panel.build(monitor)
+
+    await user.open('/')
+    _tile_check_button(user).click()
+    await user.should_see('Could not check')
+    await user.should_not_see('emy: unknown')
 
 
 # ----------------------------------------------------------------- the library

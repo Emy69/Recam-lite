@@ -231,20 +231,25 @@ class Monitor:
         if rec:
             await rec.stop()
 
-    async def manual_check(self, streamer: Streamer) -> Status:
+    async def manual_check(self, streamer: Streamer) -> platforms.Probe:
+        """Poll one channel on request. The whole Probe comes back, not just the
+        status, because a caller that asked for this one channel deserves to be
+        told when the throttle turned the poll away instead of being handed an
+        UNKNOWN that reads as an answer."""
         probe = await platforms.probe(self.client, streamer.platform, streamer.username)
         self._count_check()
         if not probe.asked:
-            return probe.status
+            return probe
         streamer.last_check = time.time()
         if streamer.key not in self.recordings and self._apply_probe(streamer, probe):
             config_mod.save_streamers(self.streamers)
-        return probe.status
+        return probe
 
     async def check_all(self) -> int:
         """Poll every channel right now (the panel's button). Returns how many are live."""
         results = await self._check_many(list(self.streamers), self.manual_check)
-        return sum(1 for r in results if r is Status.ONLINE)
+        return sum(1 for r in results
+                   if isinstance(r, platforms.Probe) and r.status is Status.ONLINE)
 
     def add_streamer(self, text: str) -> Streamer:
         detected = platforms.detect(text)
