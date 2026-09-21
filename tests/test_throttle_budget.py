@@ -12,10 +12,13 @@ window and the HTTP client.
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 import types
 
 import pytest
 
+from recam import config as config_mod
 from recam import logbook, platforms, tools
 from recam.library import Library
 from recam.models import Status, Streamer
@@ -211,6 +214,111 @@ def test_a_throttle_with_no_spacing_still_reports(cfg):
     throttle.report_429()                              # must not raise
 
     assert 'RATE LIMIT 429' in logbook.LOG_FILE.read_text(encoding='utf-8')
+
+
+# --------------------------------------------- remembering what the site said
+
+def _throttle(name='chaturbate', base=1.5):
+    return platforms._HostThrottle(min_interval=base, name=name)
+
+
+async def test_the_spacing_a_429_forced_is_written_down(cfg):
+    throttle = _throttle()
+
+    throttle.report_429()
+
+    saved = json.loads((config_mod.DATA_DIR / 'throttle.json').read_text(encoding='utf-8'))
+    assert saved['chaturbate']['interval'] == 2.25          # 1.5 widened once
+    assert saved['chaturbate']['at'] > 0
+
+
+async def test_a_restart_keeps_the_spacing_instead_of_earning_it_again(cfg):
+    """The point of the whole thing. A site's limit does not reset because the
+    app did, so starting over at the base spacing means rediscovering it the
+    only way there is — by being refused — on every launch."""
+    _throttle().report_429()                                 # what yesterday learned
+
+    after_restart = _throttle()                              # a fresh process
+    await after_restart.slot(max_wait=1)
+
+    assert after_restart.min_interval == 2.25
+    assert after_restart.min_interval > after_restart.base_interval
+
+
+async def test_each_host_remembers_its_own(cfg):
+    """One file, two hosts: neither may restore the other's spacing."""
+    _throttle('chaturbate').report_429()                     # 1.5 -> 2.25
+    sc = _throttle('stripchat', base=1.0)
+    sc.report_429()                                          # 1.0 -> 1.5
+
+    cb_again, sc_again = _throttle('chaturbate'), _throttle('stripchat', base=1.0)
+    await cb_again.slot(max_wait=1)
+    await sc_again.slot(max_wait=1)
+
+    assert cb_again.min_interval == 2.25
+    assert sc_again.min_interval == 1.5
+
+
+async def test_a_clock_that_went_backwards_keeps_the_spacing(cfg):
+    """Between two runs the clock can move back — a manual change, an NTP step,
+    or just a timestamp rounded a fraction past now. Erring wide costs a little
+    latency; erring narrow costs another 429."""
+    (config_mod.DATA_DIR / 'throttle.json').write_text(json.dumps(
+        {'chaturbate': {'interval': 3.0, 'at': time.time() + 3600}}), encoding='utf-8')
+
+    throttle = _throttle()
+    await throttle.slot(max_wait=1)
+
+    assert throttle.min_interval == 3.0
+
+
+async def test_what_this_run_learned_outranks_the_file(cfg):
+    """The file is for a cold start. Once the site has answered 429 here, that
+    is the live state: restoring over it would also reset the relax deadline,
+    so the hour of quiet would never finish counting down."""
+    (config_mod.DATA_DIR / 'throttle.json').write_text(json.dumps(
+        {'chaturbate': {'interval': 5.0, 'at': time.time()}}), encoding='utf-8')
+    throttle = _throttle()
+    throttle.report_429()                       # 1.5 -> 2.25, here and now
+    throttle.release()
+
+    await throttle.slot(max_wait=1)
+
+    assert throttle.min_interval == 2.25        # not the 5.0 sitting in the file
+
+
+async def test_spacing_old_enough_to_have_relaxed_is_not_restored(cfg):
+    """It would have widened back down after an hour of quiet anyway; coming
+    back from a long shutdown should not resurrect it."""
+    (config_mod.DATA_DIR / 'throttle.json').write_text(json.dumps(
+        {'chaturbate': {'interval': 4.0,
+                        'at': time.time() - platforms._HostThrottle.RELAX_AFTER - 60}}),
+        encoding='utf-8')
+
+    throttle = _throttle()
+    await throttle.slot(max_wait=1)
+
+    assert throttle.min_interval == 1.5
+
+
+async def test_a_restored_spacing_stays_inside_its_limits(cfg):
+    """Whatever the file says, it cannot push the app past the ceiling the
+    throttle sets for itself, or below the base it was built with."""
+    (config_mod.DATA_DIR / 'throttle.json').write_text(json.dumps(
+        {'chaturbate': {'interval': 99.0, 'at': time.time()}}), encoding='utf-8')
+
+    throttle = _throttle()
+    await throttle.slot(max_wait=1)
+
+    assert throttle.min_interval == platforms._HostThrottle.MAX_INTERVAL
+
+
+async def test_an_unreadable_file_is_the_same_as_nothing_learned(cfg):
+    (config_mod.DATA_DIR / 'throttle.json').write_text('{not json', encoding='utf-8')
+
+    throttle = _throttle()
+    assert await throttle.slot(max_wait=1) is True
+    assert throttle.min_interval == 1.5
 
 
 # ------------------------------------------------------- the budget, end to end

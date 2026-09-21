@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import sys
 import time
@@ -149,6 +150,35 @@ class RateLimited(StreamNotAvailable):
     """The site answered 429; we back off instead of digging the hole deeper."""
 
 
+def _learned_file() -> Path:
+    # resolved per call, not at import: the tests point DATA_DIR at a temp folder
+    from . import config as config_mod
+    return config_mod.DATA_DIR / 'throttle.json'
+
+
+def _load_learned() -> dict:
+    try:
+        return json.loads(_learned_file().read_text(encoding='utf-8'))
+    except Exception:
+        return {}      # missing or unreadable is the same as nothing learned
+
+
+def _save_learned(name: str, interval: float) -> None:
+    """Remember the spacing a host turned out to need.
+
+    Wall clock, not monotonic: the whole point is to survive a restart, and
+    monotonic starts again with the process.
+    """
+    try:
+        learned = _load_learned()
+        learned[name] = {'interval': round(interval, 2), 'at': int(time.time())}
+        path = _learned_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(learned, indent=2), encoding='utf-8')
+    except Exception:
+        pass           # bookkeeping must never take a poll down with it
+
+
 class _HostThrottle:
     """Politeness for one API host: spaces requests out and, after a 429, holds
     everything back for a growing while.
@@ -179,6 +209,37 @@ class _HostThrottle:
         self._hold_until = 0.0
         self._penalty = 0.0
         self._last_429 = 0.0
+        self._restored = False
+
+    def _restore_once(self) -> None:
+        """Pick the learned spacing back up before the first request goes out.
+
+        A site's limit does not reset because the app did. Starting over at the
+        base spacing means rediscovering the limit the only way there is — by
+        being refused again — on every single launch.
+
+        Read on first use rather than in __init__: these throttles are built
+        when the module is imported, before anyone has said where data/ is.
+        """
+        self._restored = True
+        saved = _load_learned().get(self.name) or {}
+        try:
+            interval = float(saved.get('interval', 0))
+            # Clamped, not rejected, when it comes out negative: the clock can
+            # go backwards between runs (a manual change, an NTP step) and a
+            # rounded timestamp can land a fraction past now. Reading that as
+            # "just learned" keeps the wider spacing, and erring wide costs a
+            # little latency where erring narrow costs another 429.
+            age = max(0.0, time.time() - float(saved.get('at', 0)))
+        except (TypeError, ValueError):
+            return
+        # nothing worth restoring, or old enough that it would have relaxed anyway
+        if interval <= self.base_interval or age > self.RELAX_AFTER:
+            return
+        self.min_interval = min(interval, self.MAX_INTERVAL)
+        # keep the relax deadline where the last 429 put it, not where the
+        # restart would put it, or the hour would start again on every launch
+        self._last_429 = time.monotonic() - age
 
     def holding(self) -> bool:
         return time.monotonic() < self._hold_until
@@ -192,6 +253,8 @@ class _HostThrottle:
         urgent=True skips the queue of ordinary reservations (only the hold and
         the spacing after the last dispatched request still apply).
         """
+        if not self._restored:
+            self._restore_once()
         now = time.monotonic()
         if self.min_interval > self.base_interval and now - self._last_429 > self.RELAX_AFTER:
             self.min_interval = self.base_interval
@@ -215,6 +278,11 @@ class _HostThrottle:
         # one incident, not a reason to double the penalty several times over
         if self.holding():
             return
+        # What this process has been told by the site outranks the file, which
+        # exists only to spare a cold start from rediscovering the limit. Once
+        # a 429 has landed here, restoring over it would also reset the relax
+        # deadline and the hour of quiet would never finish counting down.
+        self._restored = True
         self._last_429 = time.monotonic()
         self.min_interval = min(self.min_interval * 1.5, self.MAX_INTERVAL)
         self._penalty = min(max(60.0, self._penalty * 2), 900.0)
@@ -224,6 +292,7 @@ class _HostThrottle:
         # the one case where you most want to know what the spacing was.
         from . import logbook
         # a throttle with no spacing at all has no rate to quote (the tests use one)
+        _save_learned(self.name, self.min_interval)
         rate = f' ({60 / self.min_interval:.0f} req/min)' if self.min_interval > 0 else ''
         logbook.event(f'RATE LIMIT 429 from {self.name}: holding '
                       f'{self._hold_until - time.monotonic():.0f}s, spacing widened to '
