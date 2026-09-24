@@ -2,23 +2,22 @@
 
 ## v0.2.0
 
-Still Chaturbate only. The engine carries the other sites end to end, but this
-build does not enable them.
+Still Chaturbate only. The engine supports the other sites, but this build does
+not enable them.
 
 ### Recording
 
 - **A poll the request throttle turned away no longer triggers a capture
   attempt.** With more channels than one pass could poll, every channel the
   throttle had just protected went on to resolve the same endpoint anyway,
-  through the priority lane. The rate climbed with the list instead of staying
-  flat — measured at 100 requests a minute with 50 channels, against a limit
-  the site starts enforcing around 60 — which is what earned the 429s the
-  throttle exists to avoid.
+  through the priority lane. The request rate climbed with the list instead of
+  staying flat: 100 a minute with 50 channels, against a limit the site starts
+  enforcing around 60. That is what earned the 429s.
 - A pass now polls whoever has waited longest first, so a list too long for one
   window is covered evenly instead of the same names at the bottom never being
   looked at.
-- A poll that never left the building no longer repaints a channel that is
-  known to be live as unknown.
+- A poll that was never sent no longer repaints a channel known to be live as
+  unknown.
 - Wider adaptive spacing between requests, and idle channels are polled less
   often, to keep a pass short.
 - The poll interval is the period of a pass rather than a pause between passes.
@@ -37,8 +36,8 @@ build does not enable them.
 - Empty, error and missing-tool states everywhere they were missing.
 - Right-clicking the URL box offers Paste and Paste-and-add.
 - Stopping a recording asks first.
-- **A newly added channel starts with auto-record off.** Adding a channel is
-  not by itself a decision to record it.
+- **A newly added channel starts with auto-record off**, so adding one does not
+  start recording it by itself.
 
 ### Tools
 
@@ -51,10 +50,10 @@ build does not enable them.
 
 ### Packaging and docs
 
-- The Spanish README and both tutorials are gone; one README is kept in step
-  instead of four documents.
-- The `.bat` launchers are gone. `python -m recam.cli` is what they ran, and it
-  is the same command on every machine.
+- The Spanish README and both tutorials are gone, leaving one README to keep up
+  to date instead of four documents.
+- The `.bat` launchers are gone. They only ran `python -m recam.cli`, which
+  works the same on every machine.
 
 ### Tests
 

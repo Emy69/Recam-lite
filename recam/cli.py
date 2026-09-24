@@ -199,7 +199,8 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 def cmd_shutdown(_args: argparse.Namespace) -> int:
     """Ask a running daemon to stop cleanly (finalizing captures) from another
-    process — a console-signal-free way to stop a windowless daemon."""
+    process. Works without console signals, which a windowless daemon
+    never receives."""
     data = status_mod.read()
     if not data or time.time() - data.get('ts', 0) > STALE_AFTER:
         print(t('No daemon appears to be running.',

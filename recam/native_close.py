@@ -10,8 +10,8 @@ and decides in-page what happens: ask, hide to the tray, or quit.
 
 The original bootstrap is captured at import time, before install() can patch
 it. That matters because spawn re-imports the app's main module in the child,
-which runs install() there too — resolving the original lazily would then find
-our own wrapper and recurse forever.
+which runs install() there too; resolving the original lazily would then find
+the wrapper itself and recurse forever.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def allow_close() -> None:
     """Disarm the veto; call right before app.shutdown().
 
     Shutting down destroys the window with Close(), which fires the same
-    FormClosing our veto intercepts — without this, quitting would cancel
+    FormClosing the veto intercepts, so without this quitting would cancel
     its own window teardown. The message rides the regular method queue, so
     it reaches the window process before the destroy that follows it.
     """

@@ -26,9 +26,9 @@ library = Library(cfg)
 monitor = Monitor(cfg, streamers, library)
 
 # Seeking or closing a video makes the browser drop the connection mid-response.
-# On Windows that surfaces as a wall of ConnectionReset / "No response returned" /
-# EndOfStream tracebacks even though the file was served fine, which buries the
-# errors that actually matter.
+# On Windows that shows up as ConnectionReset / "No response returned" /
+# EndOfStream tracebacks even though the file was served fine, burying the
+# errors that matter.
 _BENIGN_DISCONNECT = ('No response returned', 'EndOfStream',
                       'slot belongs to has been deleted',
                       'ConnectionState.CLOSED')
@@ -52,14 +52,14 @@ def _quiet_disconnect_noise() -> None:
 
 
 def _patch_wsproto_shutdown() -> None:
-    """Keep quitting from blowing up on a websocket the client closed first.
+    """Keep quitting from failing on a websocket the client closed first.
 
-    On shutdown, uvicorn's wsproto protocol sends CloseConnection to every open
-    websocket; when the window died a moment earlier its connection is already
-    CLOSED and wsproto raises LocalProtocolError. Left alone, that aborts the
-    whole uvicorn shutdown BEFORE the lifespan handlers run — so captures in
-    flight would never be finalized. Swallowing the error and closing the
-    transport is exactly what the original code does right after the send.
+    On shutdown uvicorn's wsproto protocol sends CloseConnection to every open
+    websocket; if the window died a moment earlier its connection is already
+    CLOSED and wsproto raises LocalProtocolError. That aborts the uvicorn
+    shutdown before the lifespan handlers run, so captures in flight never get
+    finalized. Swallowing it and closing the transport is what the original code
+    does right after the send.
     """
     with contextlib.suppress(Exception):
         from uvicorn.protocols.websockets import wsproto_impl
@@ -114,7 +114,7 @@ app.on_startup(_start_status_writer)
 app.on_shutdown(monitor.shutdown)
 
 try:
-    import webview  # noqa: F401  — pywebview is what makes the window native
+    import webview  # noqa: F401  (pywebview is what makes the window native)
     NATIVE = True
 except ImportError:
     NATIVE = False   # no pywebview: fall back to opening a browser tab
@@ -138,7 +138,7 @@ def _show_from_tray() -> None:
 
 def _quit_app() -> None:
     tray.stop()
-    native_close.allow_close()   # else our own veto would cancel the shutdown
+    native_close.allow_close()   # else the veto would cancel the shutdown
     app.shutdown()
 
 
@@ -153,9 +153,9 @@ def _setup_tray() -> None:
         logbook.event('No tray: closing the window only offers quitting')
 
 
-# --- the X asks instead of closing. Minimizing minimizes, nothing else. ---
-# native_close vetoes the native close and forwards a 'closing' event; each page
-# client registers a dialog here so the question shows up wherever someone looks.
+# --- the X asks instead of closing; minimizing just minimizes ---
+# native_close vetoes the native close and forwards a 'closing' event. Each page
+# client registers a dialog here so the question shows up on whichever page is open.
 _close_dialogs: list[dict] = []
 
 
@@ -200,7 +200,7 @@ def index() -> None:
     """Every client (PC, phone…) builds its own view over the shared engine."""
     ui_theme.apply()
 
-    # test-build welcome: shown on every start until the tester opts out
+    # welcome dialog: shown on every start until the user opts out
     if getattr(cfg, 'show_beta_notice', True):
         beta_dialog = ui_dialogs.beta_notice(cfg, ui_tutorial.show)
         # on_connect, not a timer: an open() pushed before the websocket handshake
@@ -213,11 +213,10 @@ def index() -> None:
     activity = ui_panel.build_activity(monitor)
 
     with ui.header().classes('items-center gap-2 px-4 h-[52px]'):
-        # Not in the native window: its own title bar shows the same dot and the
-        # same word 56px above this one, so repeating them here spends 73px of
-        # the bar saying what the OS is already saying. A browser tab puts the
-        # title in the tab strip instead of over the page, so on a phone over
-        # LAN this header is the only thing naming the app, and it keeps them.
+        # Hidden in the native window: its title bar already shows the same dot
+        # and word 56px above, so repeating them costs 73px of the bar. A browser
+        # tab puts the title in the tab strip instead, so over LAN this header is
+        # the only thing naming the app and it keeps them.
         if not NATIVE:
             ui.icon('radio_button_checked').classes('text-xl text-rose-600')
             ui.label('Recam').classes('text-[15px] font-semibold tracking-tight mr-4')

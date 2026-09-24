@@ -51,8 +51,8 @@ async def copy_to_clipboard(text: str, message: str = '') -> None:
     """Put `text` on the clipboard from a click handler and say so.
 
     The Clipboard API is the first choice (the app is served from localhost, a
-    secure context). The fallback is a hidden textarea plus execCommand — which
-    must live INSIDE whatever has focus: a Quasar dialog pulls focus back into
+    secure context). The fallback is a hidden textarea plus execCommand, which
+    must live inside whatever has focus: a Quasar dialog pulls focus back into
     itself the moment it leaves, so a helper hung off <body> loses the focus
     before the copy runs and the clipboard gets an empty selection.
     """
@@ -107,7 +107,8 @@ def live_preview(rec, extra_classes: str = ''):
 
 
 def live_thumbnail(url: str, cache_key: int, extra_classes: str = '') -> None:
-    """Image area showing the site's own still of a live room we are not recording.
+    """Image area showing the site's own still of a live room that is not
+    being recorded.
 
     Fetched once per `cache_key` (the caller passes the broadcast start): the
     browser reuses the copy across redraws of the tile, and a new broadcast gets

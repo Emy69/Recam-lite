@@ -30,8 +30,8 @@ class LibraryItem:
 
     @property
     def is_ts(self) -> bool:
-        # raw capture: a .ts, or the 'X.ts.mp4' older versions produced — either way
-        # mpegts, which browsers refuse to play
+        # raw capture: a .ts, or the 'X.ts.mp4' older versions produced. Both
+        # are mpegts, which browsers refuse to play.
         name = self.path.name.lower()
         return name.endswith('.ts') or name.endswith('.ts.mp4')
 
@@ -111,8 +111,8 @@ class Library:
         # off the event loop: walking a big library stats hundreds of files
         entries = await asyncio.to_thread(self._walk, root)
 
-        # drop cache entries for files that vanished — but only under THIS root, so
-        # switching the recordings folder back and forth doesn't wipe the cache
+        # drop cache entries for files that vanished, but only under this root,
+        # so switching the recordings folder back and forth keeps the cache
         def under_root(key: str) -> bool:
             try:
                 return Path(key).is_relative_to(root)
@@ -159,8 +159,8 @@ class Library:
         async def one(item: LibraryItem) -> None:
             nonlocal changed
             async with sem:
-                # only a file we have never seen is worth a refresh. An orphan capture
-                # still growing gets re-read on every scan, and refreshing on that
+                # only an unseen file is worth a refresh. An orphan capture still
+                # growing gets re-read on every scan, and refreshing on that
                 # would spin the library forever.
                 is_new = str(item.path) not in self._cache
                 if item.duration is None:

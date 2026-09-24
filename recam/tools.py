@@ -83,7 +83,7 @@ def _kill_on_close_job():
 
 
 def bind_to_lifetime(pid: int) -> None:
-    """Tie a process and its children to ours, so the OS reaps them if we die."""
+    """Tie a process and its children to this one, so the OS reaps them on exit."""
     job = _kill_on_close_job()
     if not job:
         return
@@ -304,8 +304,8 @@ def disk_free(path) -> int | None:
         return None
 
 
-# --- start with Windows: a tiny .vbs in the user's Startup folder. A .bat there
-# would flash a console window on logon; WScript's Run with window mode 0 doesn't.
+# --- start with Windows: a small .vbs in the user's Startup folder. A .bat there
+# would flash a console window on logon; WScript's Run with window mode 0 does not.
 
 def _startup_shortcut() -> Path | None:
     if os.name != 'nt':

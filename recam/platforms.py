@@ -26,9 +26,9 @@ PLATFORM_COLORS = {
     'stripchat': '#E6224B',
 }
 
-# This build ships Chaturbate-only. The engine still carries the other
-# platforms end to end; putting them back is just widening this tuple (and
-# restoring the add-channel wording in monitor/ui_panel).
+# Chaturbate only in this build. The rest of the engine still handles the other
+# platforms; re-enabling one means widening this tuple and fixing the
+# add-channel wording in monitor/ui_panel.
 ENABLED_PLATFORMS: tuple[str, ...] = ('chaturbate',)
 
 _PATTERNS = [
@@ -38,8 +38,8 @@ _PATTERNS = [
     ('chaturbate', re.compile(r'(?<![\w.-])(?:https?://)?(?:[a-z]{2,3}\.)?chaturbate\.com/([A-Za-z0-9_\-]+)', re.I)),
 ]
 
-# first path segment of a non-profile URL, so pasting a category page is not
-# mistaken for a channel
+# first path segment of non-profile URLs, so a category page is not read
+# as a channel
 _RESERVED = {'videos', 'directory', 'category', 'categories', 'search', 'settings',
              'login', 'signup', 'p', 'tags', 'tag', 'girls', 'guys', 'couples', 'trans'}
 
@@ -66,22 +66,21 @@ def canonical_url(platform: str, username: str) -> str:
 
 @dataclass
 class Probe:
-    """What one liveness poll learned about a channel."""
+    """Result of one liveness poll."""
     status: Status
     started_at: float = 0.0   # broadcast start the site reported (unix seconds), if any
     viewers: int = 0
-    # False when the throttle turned the poll away before it left the building.
-    # UNKNOWN then means "we never asked", not "the site would not say", and the
-    # two must not be treated alike: trying anyway would spend, through the
-    # priority lane, the very request the throttle just refused.
+    # False when the throttle refused the slot and no request went out. UNKNOWN
+    # then means "not asked" rather than "no answer"; retrying anyway spends,
+    # through the priority lane, the request the throttle just refused.
     asked: bool = True
 
 
 async def probe(client: httpx.AsyncClient, platform: str, username: str) -> Probe:
-    """Cheap liveness poll against the public web/API. UNKNOWN when the site won't say.
+    """Cheap liveness poll against the public web/API. UNKNOWN if the site won't say.
 
-    UNKNOWN never blocks anything: channels with auto-record on are attempted anyway
-    and streamlink/yt-dlp gets the final word.
+    UNKNOWN does not block: auto-record channels are attempted anyway and
+    yt-dlp/ffmpeg has the final word.
     """
     try:
         if platform == 'twitch':
@@ -94,7 +93,7 @@ async def probe(client: httpx.AsyncClient, platform: str, username: str) -> Prob
                 return Probe(Status.ONLINE if r.json().get('livestream') else Status.OFFLINE)
         elif platform == 'chaturbate':
             if not await _CB_THROTTLE.slot(max_wait=30):
-                # the queue is longer than the window; say so instead of pretending
+                # queue longer than the window: report it instead of faking a status
                 return Probe(Status.UNKNOWN, asked=False)
             r = await client.get(f'https://chaturbate.com/api/chatvideocontext/{username}/')
             if r.status_code == 429:
@@ -141,17 +140,16 @@ class StreamNotAvailable(Exception):
 class StreamEncrypted(StreamNotAvailable):
     """Live and public, but encrypted (Stripchat's Mouflon).
 
-    Needs a decryption key the site rotates constantly and does not hand out, so
-    retrying is pointless.
+    Needs a key the site rotates and does not publish, so retrying is pointless.
     """
 
 
 class RateLimited(StreamNotAvailable):
-    """The site answered 429; we back off instead of digging the hole deeper."""
+    """The site answered 429. Back off instead of retrying."""
 
 
 def _learned_file() -> Path:
-    # resolved per call, not at import: the tests point DATA_DIR at a temp folder
+    # per call, not at import: the tests repoint DATA_DIR at a temp folder
     from . import config as config_mod
     return config_mod.DATA_DIR / 'throttle.json'
 
@@ -160,14 +158,14 @@ def _load_learned() -> dict:
     try:
         return json.loads(_learned_file().read_text(encoding='utf-8'))
     except Exception:
-        return {}      # missing or unreadable is the same as nothing learned
+        return {}      # missing or unreadable: nothing learned
 
 
 def _save_learned(name: str, interval: float) -> None:
-    """Remember the spacing a host turned out to need.
+    """Persist the spacing a host turned out to need.
 
-    Wall clock, not monotonic: the whole point is to survive a restart, and
-    monotonic starts again with the process.
+    Wall clock, not monotonic: this has to survive a restart and monotonic
+    resets with the process.
     """
     try:
         learned = _load_learned()
@@ -176,27 +174,25 @@ def _save_learned(name: str, interval: float) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(learned, indent=2), encoding='utf-8')
     except Exception:
-        pass           # bookkeeping must never take a poll down with it
+        pass           # bookkeeping must not break a poll
 
 
 class _HostThrottle:
-    """Politeness for one API host: spaces requests out and, after a 429, holds
-    everything back for a growing while.
+    """Rate limiter for one API host: spaces requests out and holds after a 429.
 
-    Bursting a check for every channel at once is what earns the 429s in the
-    first place; and once the site is limiting us, every extra request extends
-    the punishment, so during a hold callers give up fast instead of queueing.
-    Single event loop assumed: reservations happen between awaits, so no lock.
+    Checking every channel at once is what earns the 429s, and while the site is
+    limiting, extra requests only extend the hold, so callers give up fast
+    instead of queueing. Assumes a single event loop: reservations happen
+    between awaits, so there is no lock.
 
-    A pass over N channels reserves N slots in a row, so a plain reservation can
-    sit N × min_interval away. Starting a capture must not queue behind that
-    (a live channel would "fail with 429" without the site ever saying so), so
-    urgent reservations take the next free moment and push the queue back.
+    A pass over N channels books N slots in a row, so an ordinary reservation can
+    sit N * min_interval away. Starting a capture must not queue behind that, or
+    a live channel fails as rate-limited without the site saying so, so urgent
+    reservations take the next free moment and push the queue back.
     """
 
-    # after an incident the spacing widens (x1.5 each time, up to 5 s) and only
-    # relaxes back to the base once the site has been quiet for an hour: the real
-    # limit is undocumented, so the spacing has to find it by itself
+    # spacing widens x1.5 per 429, up to 5 s, and returns to the base only after
+    # an hour without one. The real limit is undocumented, so it is found by trial.
     RELAX_AFTER = 3600.0
     MAX_INTERVAL = 5.0
 
@@ -212,24 +208,22 @@ class _HostThrottle:
         self._restored = False
 
     def _restore_once(self) -> None:
-        """Pick the learned spacing back up before the first request goes out.
+        """Reload the learned spacing before the first request goes out.
 
-        A site's limit does not reset because the app did. Starting over at the
-        base spacing means rediscovering the limit the only way there is — by
-        being refused again — on every single launch.
+        The site's limit does not reset because the app restarted, so starting
+        at the base spacing means collecting another 429 on every launch.
 
-        Read on first use rather than in __init__: these throttles are built
-        when the module is imported, before anyone has said where data/ is.
+        Read on first use, not in __init__: these throttles are built at import
+        time, before DATA_DIR is known.
         """
         self._restored = True
         saved = _load_learned().get(self.name) or {}
         try:
             interval = float(saved.get('interval', 0))
-            # Clamped, not rejected, when it comes out negative: the clock can
-            # go backwards between runs (a manual change, an NTP step) and a
-            # rounded timestamp can land a fraction past now. Reading that as
-            # "just learned" keeps the wider spacing, and erring wide costs a
-            # little latency where erring narrow costs another 429.
+            # Clamped rather than rejected when negative: the clock can go
+            # backwards between runs (manual change, NTP step) and a rounded
+            # timestamp can land just past now. Too wide costs some latency,
+            # too narrow costs another 429.
             age = max(0.0, time.time() - float(saved.get('at', 0)))
         except (TypeError, ValueError):
             return
@@ -237,8 +231,8 @@ class _HostThrottle:
         if interval <= self.base_interval or age > self.RELAX_AFTER:
             return
         self.min_interval = min(interval, self.MAX_INTERVAL)
-        # keep the relax deadline where the last 429 put it, not where the
-        # restart would put it, or the hour would start again on every launch
+        # keep the relax deadline where the 429 put it, or the hour would start
+        # again on every launch
         self._last_429 = time.monotonic() - age
 
     def holding(self) -> bool:
@@ -248,10 +242,10 @@ class _HostThrottle:
         return max(0.0, self._hold_until - time.monotonic())
 
     async def slot(self, max_wait: float, urgent: bool = False) -> bool:
-        """Reserve a request slot; False if it is further than max_wait.
+        """Reserve a request slot. False if the next one is further than max_wait.
 
-        urgent=True skips the queue of ordinary reservations (only the hold and
-        the spacing after the last dispatched request still apply).
+        urgent=True skips the queue of ordinary reservations; the hold and the
+        spacing after the last sent request still apply.
         """
         if not self._restored:
             self._restore_once()
@@ -259,8 +253,8 @@ class _HostThrottle:
         if self.min_interval > self.base_interval and now - self._last_429 > self.RELAX_AFTER:
             self.min_interval = self.base_interval
         if urgent:
-            # behind the last request actually SENT, not the last one reserved:
-            # reservations can sit a whole pass ahead
+            # from the last request sent, not the last reserved: reservations
+            # can sit a whole pass ahead
             start = max(now, self._hold_until, self._last_sent + self.min_interval)
         else:
             start = max(now, self._next_slot, self._hold_until)
@@ -274,24 +268,22 @@ class _HostThrottle:
 
     def report_429(self, retry_after: float = 0.0) -> None:
         """The site said 429. `retry_after` is its own Retry-After, if it sent one."""
-        # requests already in flight when the first 429 lands get 429 too: that is
-        # one incident, not a reason to double the penalty several times over
+        # requests in flight when the first 429 lands get one too; still one
+        # incident, so do not double the penalty several times over
         if self.holding():
             return
-        # What this process has been told by the site outranks the file, which
-        # exists only to spare a cold start from rediscovering the limit. Once
-        # a 429 has landed here, restoring over it would also reset the relax
-        # deadline and the hour of quiet would never finish counting down.
+        # A live 429 outranks the file, which only exists to spare a cold start.
+        # Restoring over it would also reset the relax deadline, so the hour of
+        # quiet would never finish counting down.
         self._restored = True
         self._last_429 = time.monotonic()
         self.min_interval = min(self.min_interval * 1.5, self.MAX_INTERVAL)
         self._penalty = min(max(60.0, self._penalty * 2), 900.0)
         self._hold_until = time.monotonic() + max(self._penalty, retry_after)
-        # Only a 429 met while LAUNCHING a capture used to reach the log, so a
-        # 429 met while polling raised the banner and left no trace at all —
-        # the one case where you most want to know what the spacing was.
+        # log it here: a 429 hit while polling used to raise the banner and
+        # leave no trace at all
         from . import logbook
-        # a throttle with no spacing at all has no rate to quote (the tests use one)
+        # min_interval 0 (the tests use one) has no rate to quote
         _save_learned(self.name, self.min_interval)
         rate = f' ({60 / self.min_interval:.0f} req/min)' if self.min_interval > 0 else ''
         logbook.event(f'RATE LIMIT 429 from {self.name}: holding '
@@ -302,14 +294,14 @@ class _HostThrottle:
         self._penalty = 0.0
 
     def release(self) -> None:
-        """Lift the hold early (the user asked to retry right away); the penalty
-        keeps growing if the site answers 429 again."""
+        """Lift the hold early for a manual retry. The penalty still grows if
+        the site answers 429 again."""
         self._hold_until = 0.0
 
 
-# 1.5 s is 40 requests a minute at most: 0.8 s earned 429s within a minute with 31
-# channels (the limit is undocumented; ~60/min fits everything seen so far). The
-# monitor keeps passes short by not polling idle watch-only channels every time.
+# 1.5 s caps it at 40 requests a minute. 0.8 s earned 429s within a minute with
+# 31 channels; the limit is undocumented but ~60/min fits what has been seen.
+# The monitor keeps passes short by polling idle watch-only channels less often.
 _CB_THROTTLE = _HostThrottle(min_interval=1.5, name='chaturbate')
 
 
@@ -376,9 +368,9 @@ async def resolve_stripchat_m3u8(username: str, quality: str) -> str:
             raise StreamNotAvailable(t('stream is not public right now (private show?)',
                                        'emisión no pública ahora mismo (¿show privado?)'))
         if '#EXT-X-MOUFLON' in r2.text:
-            # the playlist advertises decoy segments (media.mp4, always a 404) and hides
+            # the playlist advertises decoy segments (media.mp4, always 404) and hides
             # the real encrypted ones behind these tags. Without the key ffmpeg would
-            # happily download nothing but 404s, so say so instead of recording garbage.
+            # download only 404s, so fail here instead of recording nothing.
             raise StreamEncrypted(t('stream encrypted by Stripchat (Mouflon): not recordable without the decryption key',
                                     'emisión cifrada por Stripchat (Mouflon): no grabable sin clave de descifrado'))
         variants: list[tuple[int, int, str]] = []
@@ -451,13 +443,13 @@ async def resolve_chaturbate_master(username: str, quality: str) -> str:
     """A minimal master playlist for the public stream: one video variant plus its
     matching audio rendition, with absolute URLs.
 
-    Feeding this to ffmpeg as a SINGLE input is what keeps the recording in sync.
+    Feeding this to ffmpeg as a single input is what keeps the recording in sync.
     With the audio playlist as a second -i, ffmpeg shifts each input to start at
-    zero independently; it opens the video first, spends a second or three probing
-    it, and by then the audio's live edge has moved on — so the audio lands that
-    far ahead of the picture, a different amount every capture. One input gets one
-    common shift and the shared source timeline survives intact (measured: 1.6 s
-    of audio lead with two inputs, frame-exact alignment with one).
+    zero independently: it opens the video first, spends a second or three probing
+    it, and by then the audio's live edge has moved on, so the audio lands that far
+    ahead of the picture by a different amount every capture. One input gets one
+    common shift and the shared source timeline survives (measured: 1.6 s of audio
+    lead with two inputs, frame-exact alignment with one).
     """
     if not await _CB_THROTTLE.slot(max_wait=10, urgent=True):
         raise RateLimited(t('chaturbate is rate limiting (429); retrying in ~{}s',
@@ -535,9 +527,9 @@ async def resolve_chaturbate_master(username: str, quality: str) -> str:
     group = re.search(r'AUDIO="([^"]+)"', inf)
     if group:
         if group.group(1) not in audio_lines:
-            # the variant points at a separate audio rendition we could not attach;
-            # a master with just the (video-only) variant would record silently.
-            # Signal the caller to fall back to the dual-input resolver instead.
+            # the variant points at a separate audio rendition that could not be
+            # attached; a master with only the video-only variant records silent.
+            # Tell the caller to fall back to the dual-input resolver.
             raise RuntimeError('audio rendition not found in master')
         lines.append(audio_lines[group.group(1)])
     # no AUDIO attribute means the audio is muxed into the variant's own segments,
@@ -569,17 +561,17 @@ async def build_record_cmd(platform: str, username: str, quality: str,
                 '-user_agent', REQUEST_HEADERS['User-Agent'],
                 '-i', m3u8, '-c', 'copy', '-f', 'mpegts', str(out_ts)]
 
-    # Chaturbate. Preferred path: a local master playlist handed to ffmpeg as ONE
-    # input (see resolve_chaturbate_master for why this is what keeps A/V in sync).
-    # No -user_agent here: the input is a local file and the option belongs to the
-    # http protocol, so ffmpeg rejects it — the CDN serves fine without it.
+    # Chaturbate. Preferred path: a local master playlist given to ffmpeg as one
+    # input (see resolve_chaturbate_master for why that keeps A/V in sync).
+    # No -user_agent: the input is a local file and the option belongs to the
+    # http protocol, so ffmpeg rejects it. The CDN serves fine without it.
     try:
         master = await resolve_chaturbate_master(username, quality)
     except StreamNotAvailable:
         raise
     except Exception:
-        # the page changed on us; the yt-dlp route still records, just with the
-        # audio-lead problem, which beats not recording at all
+        # page layout changed; the yt-dlp route still records, with the
+        # audio-lead problem
         urls = await resolve_chaturbate_urls(username, quality)
         cmd = [ffmpeg, '-y', '-hide_banner', '-loglevel', 'warning',
                '-user_agent', REQUEST_HEADERS['User-Agent']]
@@ -592,8 +584,8 @@ async def build_record_cmd(platform: str, username: str, quality: str,
     master_path = out_ts.with_suffix('.m3u8')
     master_path.parent.mkdir(parents=True, exist_ok=True)
     master_path.write_text(master, encoding='utf-8')
-    # -map 0:a:0? — the '?' keeps ffmpeg from failing when a stream unexpectedly
-    # carries no audio, while still capturing it whenever it is there
+    # -map 0:a:0? : the '?' keeps ffmpeg from failing when a stream carries no
+    # audio, while still capturing it whenever it is there
     return [ffmpeg, '-y', '-hide_banner', '-loglevel', 'warning',
             '-protocol_whitelist', 'file,http,https,tcp,tls,crypto',
             '-i', str(master_path),

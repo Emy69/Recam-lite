@@ -19,8 +19,8 @@ COOLDOWN_AFTER_MANUAL_STOP = 600   # don't fight the user who just pressed stop
 COOLDOWN_AFTER_OFFLINE = 15
 
 # Post-processing is pure disk I/O on multi-gigabyte files. Stopping several
-# captures at once used to fire that many parallel remuxes and grind the whole
-# machine; one at a time keeps the app snappy and finishes just as fast overall.
+# captures at once used to fire that many parallel remuxes and grind the machine.
+# One at a time keeps the app responsive and finishes just as fast overall.
 _POSTPROCESS = asyncio.Semaphore(1)
 
 SNAPSHOT_EVERY = 15   # seconds between live-preview frames of a running capture
@@ -286,8 +286,8 @@ class Recording:
             reason = t('NOT saved — only {} (minimum {}): {}',
                        'NO guardado — solo {} (mínimo {}): {}').format(
                 tools.human_size(self.size), tools.human_size(MIN_VALID_BYTES), hint)
-            # stopped by hand: the broadcast is almost surely still on, so keep it in
-            # the live group (the cooldown is what holds auto-record back, not this)
+            # stopped by hand: the broadcast is probably still on, so keep it in
+            # the live group (the cooldown holds auto-record back, not this)
             s.set_status(Status.ONLINE if self.manual_stop else Status.OFFLINE)
             s.last_error = reason
             s.last_result = ''
@@ -304,15 +304,15 @@ class Recording:
             reason = t('saved {} · {} · {}', 'guardado {} · {} · {}').format(
                 final.name, tools.human_duration(duration), tools.human_size(final_size))
             if not has_audio:
-                # loud in the log so a tester's "no audio" report is diagnosable at a glance
+                # loud in the log so a "no audio" report is diagnosable at a glance
                 reason += t(' · WARNING: no audio track', ' · AVISO: sin pista de audio')
                 logbook.event(f'NO AUDIO  {s.username} ({s.platform}) — the capture has '
                               f'no audio stream: {final.name}')
             saved = True
             s.last_result = reason
             s.last_error = ''
-            # stopped by hand: the broadcast is almost surely still on, so keep it in
-            # the live group (the cooldown is what holds auto-record back, not this)
+            # stopped by hand: the broadcast is probably still on, so keep it in
+            # the live group (the cooldown holds auto-record back, not this)
             s.set_status(Status.ONLINE if self.manual_stop else Status.OFFLINE)
             s.cooldown_until = time.time() + (COOLDOWN_AFTER_MANUAL_STOP if self.manual_stop
                                               else COOLDOWN_AFTER_END)
@@ -365,8 +365,8 @@ async def remux_to_mp4(ts_path: Path, mp4_path: Path) -> Path | None:
     else:
         cmd += ['-i', str(ts_path)]
     # no +faststart: it rewrites the whole file a second time, doubling the disk
-    # work per capture, and the media route serves byte ranges so the browser can
-    # read the trailing moov just fine
+    # work per capture. The media route serves byte ranges, so the browser can
+    # read the trailing moov anyway.
     cmd += ['-c', 'copy', str(mp4_path)]
     rc, _ = await _run_quiet(cmd, timeout=7200)
     if rc == 0 and mp4_path.exists() and mp4_path.stat().st_size > 0:

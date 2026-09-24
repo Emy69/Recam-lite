@@ -2,12 +2,12 @@
 
 Chaturbate's limit is undocumented and answers 429 when crossed, so the engine
 spaces its polls out and turns away whatever does not fit the window. These
-tests pin down the part that is easy to get backwards: a poll that was turned
-away has to cost *less* than one that went through, never more.
+tests cover the part that is easy to get backwards: a refused poll has to cost
+less than one that went through, never more.
 
-Nothing here stubs `probe` or `Recording.start`: the whole point is what the
-real code spends, so the fakes sit at the two edges only — the throttle's
-window and the HTTP client.
+Nothing here stubs `probe` or `Recording.start`, since the point is what the
+real code spends. The fakes sit at the two edges only: the throttle's window
+and the HTTP client.
 """
 from __future__ import annotations
 
@@ -35,10 +35,9 @@ class _Window:
     """A throttle with a fixed number of ordinary slots left in its window.
 
     Stands in for the real one once a long pass has queued past the window:
-    ordinary reservations are refused, but the priority lane stays open, since
-    it is measured from the last request actually sent rather than from the
-    queue. That asymmetry is the whole point — it is what lets a refused poll
-    turn into a more expensive capture attempt.
+    ordinary reservations are refused while the priority lane stays open, since
+    it is measured from the last request sent rather than from the queue. That
+    asymmetry is what let a refused poll turn into a capture attempt.
     """
 
     def __init__(self, slots: int = 0):
@@ -124,11 +123,11 @@ def _monitor(cfg, streamers, sent) -> Monitor:
 
 async def test_a_poll_the_throttle_refused_sends_nothing_at_all(
         cfg, sent, monkeypatch):
-    """The trap: a refused poll returns UNKNOWN, and UNKNOWN used to mean "try
-    anyway and let the recorder decide". So every channel the throttle just
-    protected went straight into a capture attempt, which resolves the very
-    endpoint the poll skipped and takes the priority lane to do it. The more
-    channels on the list, the faster the app fired — backwards.
+    """A refused poll returns UNKNOWN, and UNKNOWN used to mean "try anyway
+    and let the recorder decide". Every channel the throttle had just protected
+    went straight into a capture attempt, which resolves the endpoint the poll
+    skipped and takes the priority lane to do it. The longer the list, the
+    faster the app fired, which is backwards.
     """
     window = _Window(slots=0)
     monkeypatch.setattr(platforms, '_CB_THROTTLE', window)
@@ -142,9 +141,8 @@ async def test_a_poll_the_throttle_refused_sends_nothing_at_all(
 
 
 async def test_a_refused_poll_leaves_the_channel_as_it_was(cfg, sent, monkeypatch):
-    """Nothing was asked, so nothing was learned: a channel known to be live
-    must not be repainted UNKNOWN by a poll that never left the building, and
-    it must still be owed a check."""
+    """No request went out, so a channel known to be live must not be
+    repainted UNKNOWN, and it must still be owed a check."""
     monkeypatch.setattr(platforms, '_CB_THROTTLE', _Window(slots=0))
     live = _channels(1)[0]
     live.set_status(Status.ONLINE)
@@ -170,7 +168,8 @@ async def test_a_poll_that_went_through_is_stamped(cfg, sent, monkeypatch):
 
 
 async def test_the_channels_turned_away_lead_the_next_pass(cfg, sent, monkeypatch):
-    """Otherwise the same bottom names are refused for ever and never checked."""
+    """Otherwise the same names at the bottom are refused forever and never
+    checked."""
     window = _Window(slots=3)
     monkeypatch.setattr(platforms, '_CB_THROTTLE', window)
     monitor = _monitor(cfg, _channels(6), sent)
@@ -192,9 +191,9 @@ async def test_the_channels_turned_away_lead_the_next_pass(cfg, sent, monkeypatc
 # ------------------------------------------------------------ leaving a trace
 
 def test_a_429_leaves_something_to_read_back(cfg):
-    """Only a 429 met while LAUNCHING a capture used to reach the log. One met
-    while polling raised the banner and logged nothing, so the one question
-    worth asking afterwards — what spacing was it using? — had no answer."""
+    """Only a 429 hit while launching a capture used to reach the log. One
+    hit while polling raised the banner and logged nothing, leaving no record
+    of what spacing was in use."""
     throttle = platforms._HostThrottle(min_interval=1.5, name='chaturbate')
 
     throttle.report_429()
@@ -202,7 +201,7 @@ def test_a_429_leaves_something_to_read_back(cfg):
     written = logbook.LOG_FILE.read_text(encoding='utf-8')
     assert 'RATE LIMIT 429' in written
     assert 'chaturbate' in written
-    assert 'req/min' in written        # the number you tune on
+    assert 'req/min' in written        # the number to tune
     assert '2.25' in written           # and that the spacing did widen
 
 
@@ -233,10 +232,9 @@ async def test_the_spacing_a_429_forced_is_written_down(cfg):
 
 
 async def test_a_restart_keeps_the_spacing_instead_of_earning_it_again(cfg):
-    """The point of the whole thing. A site's limit does not reset because the
-    app did, so starting over at the base spacing means rediscovering it the
-    only way there is — by being refused — on every launch."""
-    _throttle().report_429()                                 # what yesterday learned
+    """A site's limit does not reset because the app did, so starting over
+    at the base spacing means collecting another 429 on every launch."""
+    _throttle().report_429()                                 # what a previous run learned
 
     after_restart = _throttle()                              # a fresh process
     await after_restart.slot(max_wait=1)
@@ -260,9 +258,9 @@ async def test_each_host_remembers_its_own(cfg):
 
 
 async def test_a_clock_that_went_backwards_keeps_the_spacing(cfg):
-    """Between two runs the clock can move back — a manual change, an NTP step,
-    or just a timestamp rounded a fraction past now. Erring wide costs a little
-    latency; erring narrow costs another 429."""
+    """Between two runs the clock can move back: a manual change, an NTP
+    step, or a timestamp rounded just past now. Too wide costs some latency,
+    too narrow costs another 429."""
     (config_mod.DATA_DIR / 'throttle.json').write_text(json.dumps(
         {'chaturbate': {'interval': 3.0, 'at': time.time() + 3600}}), encoding='utf-8')
 
@@ -373,12 +371,12 @@ def simulated_clock(monkeypatch):
 
 async def test_one_pass_never_outruns_the_throttle_window(
         cfg, sent, simulated_clock, monkeypatch):
-    """The property that keeps the app under the limit: what a pass sends is
-    capped by the clock, not by how many channels are on the list.
+    """What a pass sends is capped by the clock, not by how many channels
+    are on the list.
 
-    Measured on the real throttle before this was fixed: 21 requests for 21
-    channels, 30 for 30, 50 for 50 — a rate climbing from 42/min to 100/min as
-    the list grew, while the site starts answering 429 around 60/min.
+    Measured on the real throttle before the fix: 21 requests for 21 channels,
+    30 for 30, 50 for 50, a rate climbing from 42/min to 100/min as the list
+    grew, while the site starts answering 429 around 60/min.
     """
     async def requests_for(channel_count: int) -> int:
         sent.clear()

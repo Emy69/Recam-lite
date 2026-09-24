@@ -3,9 +3,9 @@
     .venv\\Scripts\\python.exe build_exe.py            # release (no console)
     .venv\\Scripts\\python.exe build_exe.py --console  # debug build with a console
 
-cx_Freeze rather than PyInstaller on purpose: PyInstaller's self-extracting
-bootloader trips antivirus heuristics constantly; a cx_Freeze build is a
-plain executable next to its libraries and rarely gets flagged.
+cx_Freeze rather than PyInstaller: PyInstaller's self-extracting bootloader
+trips antivirus heuristics constantly, while a cx_Freeze build is a plain
+executable next to its libraries and rarely gets flagged.
 
 Everything lands in ONE folder, `build/`: the finished app in
 `build/Recam/` and the zip next to it. If ffmpeg.exe/ffprobe.exe (plus
@@ -85,7 +85,7 @@ def main() -> None:
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
         for path in sorted(DIST.rglob('*')):
             rel = path.relative_to(DIST)
-            # a test run of the built exe leaves personal state behind; never ship it
+            # a test run of the built exe leaves local state behind; never ship it
             if rel.parts[0] in ('data', 'grabaciones'):
                 continue
             z.write(path, Path('Recam') / rel)

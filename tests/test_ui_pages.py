@@ -211,9 +211,9 @@ async def test_checking_one_channel_reports_what_the_site_said(
 
 async def test_checking_one_channel_admits_when_it_could_not_ask(
         user, cfg, monkeypatch):
-    """A poll the throttle turned away is not an answer. Printing the usual
-    UNKNOWN would have the button reply to a question it never put — and the
-    one thing someone pressing it wants is to know whether it asked."""
+    """A refused poll is not an answer. Printing the usual UNKNOWN would
+    claim one; whoever pressed the button needs to know the request never
+    went out."""
     async def turned_away(_client, _platform, _username):
         return Probe(Status.UNKNOWN, asked=False)
 

@@ -15,13 +15,13 @@ from .library import Library
 from .models import Status, Streamer
 from .recorder import Recording
 
-ENCRYPTED_COOLDOWN = 1800   # no point hammering a stream we cannot decrypt
+ENCRYPTED_COOLDOWN = 1800   # no point retrying a stream that cannot be decrypted
 
 MIN_PAUSE_BETWEEN_PASSES = 5
 
-# an offline channel with auto-record off is only being watched for the Panel, so
-# it is polled this often at most; that keeps a pass short (and under the site's
-# request limit) when most of the list is idle
+# an offline channel with auto-record off is only watched for the Panel, so it
+# is polled this often at most. Keeps a pass short, and under the site's request
+# limit, when most of the list is idle.
 WATCH_ONLY_EVERY = 120
 
 
@@ -87,7 +87,7 @@ class Monitor:
                 try:
                     await self._cycle()
                 except Exception as exc:
-                    # a bad cycle must never kill the loop, but it should be traceable
+                    # a bad cycle must not kill the loop, but it should be traceable
                     logbook.event(f'ERROR in the watch cycle: {exc!r}')
             await asyncio.sleep(self._sleep_after_pass(time.monotonic() - started))
 
@@ -101,11 +101,10 @@ class Monitor:
     async def _cycle(self) -> None:
         now = time.time()
         due = [s for s in list(self.streamers) if self._wants_check(s, now)]
-        # A pass can be longer than the throttle's window, and whoever is at the
-        # back gets turned away. Going by who has waited longest rotates that
-        # tail to the front next time, so a long list is polled slower but
-        # evenly, instead of the same bottom names never being looked at.
-        # Channels that could start a capture keep their head start.
+        # A pass can outlast the throttle's window, so whoever is at the back
+        # gets refused. Sorting by who has waited longest rotates that tail to
+        # the front next time: a long list is polled slower but evenly. Channels
+        # that could start a capture keep their head start.
         due.sort(key=lambda s: (not (s.auto_record or s.is_live), s.last_check))
         if due:
             await self._check_many(due, self._check_one)
@@ -138,10 +137,10 @@ class Monitor:
         probe = await platforms.probe(self.client, streamer.platform, streamer.username)
         self._count_check()
         if not probe.asked:
-            # Nothing was asked, so nothing was learned: leave last_check alone
-            # and this channel leads the next pass. Falling through would be
-            # worse than useless — the capture attempt below resolves the same
-            # endpoint the poll just skipped, and it jumps the queue to do it.
+            # No request went out, so leave last_check alone and let this channel
+            # lead the next pass. Falling through is worse: the capture attempt
+            # below resolves the same endpoint the poll skipped, and jumps the
+            # queue to do it.
             return
         streamer.last_check = time.time()
         if streamer.key in self.recordings:
@@ -152,8 +151,8 @@ class Monitor:
         if not (streamer.auto_record and status in (Status.ONLINE, Status.UNKNOWN)
                 and len(self.recordings) < self.cfg.max_concurrent):
             return
-        # UNKNOWN normally means "try anyway and let the recorder decide", but when
-        # the site is rate-limiting us, trying anyway is what keeps the limit alive
+        # UNKNOWN normally means "try anyway and let the recorder decide", but
+        # while the site is rate-limiting, trying anyway keeps the limit alive
         if status is Status.UNKNOWN and platforms.rate_limited(streamer.platform):
             return
         await self.start_recording(streamer)
@@ -179,13 +178,13 @@ class Monitor:
             self._drop(streamer, rec, t('not launched (encrypted stream)',
                                         'no se lanzó (emisión cifrada)'), str(exc),
                        ENCRYPTED_COOLDOWN)
-            streamer.set_status(Status.ONLINE)   # it is live, we just cannot read it
+            streamer.set_status(Status.ONLINE)   # it is live, just not readable
             self._event('fail', t('encrypted stream, not recordable',
                                   'emisión cifrada, no grabable'), streamer.username)
             logbook.event(f'NOT RECORDABLE  {streamer.username} ({streamer.platform}): {exc}')
             return None
         except platforms.RateLimited as exc:
-            # wait the hold out plus some jitter, so 18 channels don't all knock
+            # wait the hold out plus jitter, so the channels do not all knock
             # again in the same second when it lifts
             cooldown = max(60.0, platforms.rate_limit_remaining(streamer.platform)) \
                 + random.uniform(0, 30)

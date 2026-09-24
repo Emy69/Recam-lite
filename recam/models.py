@@ -46,7 +46,7 @@ class Streamer:
     auto_record: bool = False   # off until the user turns it on: adding is not a decision to record
 
     # the live/offline timeline; these two survive restarts (see to_json)
-    last_online: float = 0.0            # last moment we saw a broadcast running
+    last_online: float = 0.0            # last moment a broadcast was seen running
     last_broadcast_start: float = 0.0   # start of the latest broadcast the site reported
 
     # everything below is runtime only; to_json/from_json deliberately skip it

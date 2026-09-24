@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
 
-from . import AUTHOR, LINKS  # noqa: F401  — re-exported for callers using config.*
+from . import AUTHOR, LINKS  # noqa: F401  (re-exported for callers using config.*)
 from .models import Streamer
 
 if getattr(sys, 'frozen', False):
@@ -97,13 +97,13 @@ def save(cfg: Config) -> None:
                            encoding='utf-8')
 
 
-# Channels saved on a platform this build does not record — a list written by a
-# build that enabled more sites, or edited by hand. The gate on adding a channel
+# Channels saved on a platform this build does not record: a list written by a
+# build with more sites enabled, or edited by hand. The gate on adding a channel
 # never sees these, so without this they would be polled and recorded anyway.
 #
-# They are held aside rather than dropped: the list belongs to whoever wrote it,
-# and a build that does enable the site has to find them again. load_streamers()
-# keeps them out of the engine and save_streamers() puts them back in the file.
+# Held aside rather than dropped, so a build that does enable the site still
+# finds them. load_streamers() keeps them out of the engine and save_streamers()
+# writes them back to the file.
 _parked: list[dict] = []
 
 

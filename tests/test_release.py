@@ -66,9 +66,9 @@ def test_a_disabled_platform_cannot_be_added(platform, cfg):
 
 @pytest.mark.parametrize('platform', DISABLED)
 def test_a_saved_channel_on_a_disabled_platform_is_not_loaded(platform, isolated):
-    """The gate on adding a channel does not cover a list already on disk — one
-    written by a build that enabled more sites, or edited by hand. Without this
-    the free build would poll and record a site it does not offer."""
+    """The gate on adding a channel does not cover a list already on disk:
+    one written by a build with more sites enabled, or edited by hand. Without
+    this the free build would poll and record a site it does not offer."""
     config_mod.STREAMERS_FILE.write_text(json.dumps([
         {'url': SAMPLE_URLS['chaturbate'], 'platform': 'chaturbate',
          'username': 'emy', 'auto_record': True},

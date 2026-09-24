@@ -138,7 +138,7 @@ def build(library: Library, monitor=None):
                           on_click=lambda: player_js('if (v.requestFullscreen) v.requestFullscreen()')) \
                     .props('flat round dense color=grey-5') \
                     .tooltip(t('Full screen', 'Pantalla completa'))
-        # user-driven only: Quasar emits 'change' on release, never for values we set
+        # user-driven only: Quasar emits 'change' on release, never for values set in code
         seek.on('change', lambda e: player_js(f'v.currentTime = {float(e.args)}'))
         volume.on('change', lambda e: player_js(f'v.volume = {float(e.args)}'))
 

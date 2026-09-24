@@ -212,8 +212,8 @@ def build(monitor: Monitor):
                         .props('track-color=grey-9').classes('w-14')
                 check_row.set_visibility(False)
 
-        # two situations worth a line above the grid: the site holding us off,
-        # and the recorder missing its tools
+        # two situations worth a line above the grid: the site holding requests
+        # off, and the recorder missing its tools
         with ui.row().classes('w-full items-center gap-2.5 rounded-lg bg-rose-600/10 border '
                               'border-rose-600/35 px-3 py-2 flex-nowrap') as net_banner:
             ui.icon('wifi_off', size='xs').classes('text-rose-400 flex-none')
@@ -473,8 +473,8 @@ def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -
         finally:
             check_btn.props(remove='loading')
         if not probe.asked:
-            # Nothing was asked, so there is no answer. Printing UNKNOWN here
-            # would have the button reply to a question it never put.
+            # no request went out, so there is no answer to print; UNKNOWN here
+            # would be misleading
             notify(t('Could not check {} yet: the site is being given room. '
                      'It goes first in the next round.',
                      'Aun no se pudo comprobar a {}: se le esta dando margen al '
@@ -586,7 +586,7 @@ def _streamer_tile(monitor: Monitor, s: Streamer, sync, timeline_labels: dict) -
                         .props('flat dense size=sm color=primary').classes('bg-rose-600/15') \
                         .tooltip(t('Stop and save', 'Detener y guardar'))
                 else:
-                    # red only on hover: the grid should not shout red on every tile
+                    # red only on hover: the grid should not be red on every tile
                     record = ui.button(icon='fiber_manual_record', on_click=do_record) \
                         .props('flat dense size=sm color=grey-5').classes('hover:text-rose-500')
                     if tools.missing_tools():
@@ -631,7 +631,7 @@ def _timeline_text(s: Streamer) -> str:
         return t('offline for {}', 'sin emitir desde hace {}').format(
             tools.human_span(now - s.last_online))
     if s.last_broadcast_start:
-        # never caught it live ourselves; the site still tells when it last started
+        # never caught live here; the site still reports when it last started
         return t('last broadcast started {}', 'última emisión empezó {}').format(
             tools.human_ago(s.last_broadcast_start))
     if not s.last_check:

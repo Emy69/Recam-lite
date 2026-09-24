@@ -38,14 +38,14 @@ or `python -m pytest tests/test_platforms.py -k master`, … to narrow it down.
 `test_release.py` is the pre-upload checklist, as tests. It fails when:
 
 - another site slips into `ENABLED_PLATFORMS`, or a disabled one becomes
-  addable again — this build records Chaturbate only
+  addable again (this build records Chaturbate only)
 - an enabled platform is only half-wired (no colour, no tile tag, no poll)
 - `__version__` is bumped but a hard-coded version is left behind in the README
   or the CLI banner (three spots today)
 - the code imports a package `build_exe.py` does not freeze, or imports one it
-  excludes — an exe that only dies on someone else's machine
+  excludes, which gives an exe that only fails on someone else's machine
 - a `t()` string loses one of its two languages, or the two halves disagree on
-  their `{}` placeholders, which throws for Spanish users only
+  their `{}` placeholders, which raises for Spanish users only
 - a `breakpoint()` survives into a shipped file
 
 ## Bugs these tests caught, and where the regression lives

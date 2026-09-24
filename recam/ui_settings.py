@@ -33,8 +33,9 @@ _FIELD = 'outlined dense'
 
 
 def _lan_ip() -> str | None:
-    """Our address on the local network. No packet is sent; connecting a UDP socket
-    just makes the OS pick the interface it would route through."""
+    """This machine's address on the local network. No packet is sent;
+    connecting a UDP socket just makes the OS pick the interface it would
+    route through."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(('8.8.8.8', 80))

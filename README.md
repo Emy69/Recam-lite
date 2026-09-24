@@ -2,9 +2,9 @@
 
 **v0.2.0** · [Changelog](CHANGELOG.md)
 
-> **⚠ Free version.** This is an early version and it records **Chaturbate only** for now. Expect rough edges — anything you can report back (bugs, confusing bits, ideas) genuinely helps development move forward. Thank you for testing!
+> **⚠ Free version.** This is an early version and it records **Chaturbate only** for now. Expect rough edges. Bug reports, confusing bits and ideas are all welcome and help decide what comes next. Thanks for testing!
 
-A desktop app that watches **Chaturbate** channels, records their streams automatically the moment they go live, and helps you organize the results: live preview while recording, thumbnails, in-app playback with resume, renaming, filtering, and a recycle-bin-safe delete. The interface is NiceGUI in a native window, but the engine runs just as well without it. (Support for more platforms is already inside the engine and planned for later builds.)
+A desktop app that watches **Chaturbate** channels, records their streams automatically the moment they go live, and helps you organize the results: live preview while recording, thumbnails, in-app playback with resume, renaming, filtering, and a recycle-bin-safe delete. The interface is NiceGUI in a native window, and the engine also runs without it. (Support for more platforms is already inside the engine and planned for later builds.)
 
 > Personal use only. These platforms' terms of service do not allow recording or redistributing content; the files stay on your disk.
 
@@ -24,11 +24,11 @@ py -3 -m venv .venv
 
 Run `.venv\Scripts\pythonw.exe app.py` for the native window, or `python app.py`, which also serves http://127.0.0.1:8211.
 
-- **Panel** — paste a channel URL and press Add. With *Auto* on it starts recording the moment the channel goes live; you can also force it with *Record now*. Channels show as a grid of tiles sorted by usefulness (recording first, then live), the recording ones with a live preview frame. An activity feed shows what happened while you were away.
+- **Panel** — paste a channel URL and press Add. With *Auto* on it starts recording the moment the channel goes live; you can also force it with *Record now*. Channels show as a grid of tiles sorted by state (recording first, then live), the recording ones with a live preview frame. An activity feed shows what happened while you were away.
 - **Library** — recordings grouped into one collapsible section per profile, as thumbnail tiles with duration badges. Click a tile to play in the built-in player (±10 s skips, playback speed, remembers your volume and where you left off). Multi-select sends several recordings to the recycle bin at once. Raw `.ts` captures (interrupted recordings) convert to MP4 with one click.
 - **Settings** — destination folder, quality, poll interval, file name template, interface language (English/Spanish), start with Windows, LAN access (watch the panel from your phone) and one-click updates of yt-dlp/streamlink.
 
-Minimizing minimizes normally. The window **X** asks whether to hide the app to the tray (it keeps recording in the background) or quit for real — quitting finalizes captures in flight into clean MP4s.
+Minimizing minimizes normally. The window **X** asks whether to hide the app to the tray, where it keeps recording in the background, or quit. Quitting finalizes captures in flight into playable MP4s first.
 
 ## Headless (server / bot / CLI)
 
@@ -70,13 +70,13 @@ Do not leave `dashboard` and `run` open at the same time: both would record the 
 
 An asyncio service checks every X seconds who is live against each site's public APIs. If one does not answer, it tries anyway and lets the recorder decide.
 
-Requests to the same site are spaced out (no bursts with many channels), and if a 429 still arrives the app backs off automatically with a growing wait — insisting only extends the punishment.
+Requests to the same site are spaced out (no bursts with many channels), and if a 429 still arrives the app backs off with a growing wait, since retrying during one only extends it.
 
 The capture goes to a `.ts`, which survives a power cut or a hard close: ffmpeg downloads the HLS directly and muxes audio and video as-is, no re-encoding. (The engine also carries support for other platforms, disabled in this build.)
 
 While recording, a recent frame is pulled from the growing file every ~15 seconds as a live preview. When it ends: remux to MP4 (also a pure copy), thumbnail, and into the library.
 
-**Audio sync.** Cam sites publish audio and video as two separate HLS playlists. Handing them to ffmpeg as two inputs makes it zero-shift each one independently: it opens the video first, spends a couple of seconds probing it, and by then the audio's live edge has moved on — the audio lands that far ahead, a different amount every capture. The fix is a **single input**: a small local master playlist with the chosen video variant and its audio rendition, so ffmpeg applies one common shift and the source's shared timeline survives intact (verified by cross-correlation: from 1.6 s of audio lead to frame-exact alignment). The manual nudge in Settings remains as a fine-tune and applies at MP4 conversion, shifting timestamps without touching samples.
+**Audio sync.** Cam sites publish audio and video as two separate HLS playlists. Handing them to ffmpeg as two inputs makes it zero-shift each one independently: it opens the video first, spends a couple of seconds probing it, and by then the audio's live edge has moved on, so the audio lands that far ahead by a different amount every capture. The fix is a **single input**: a small local master playlist with the chosen video variant and its audio rendition, so ffmpeg applies one common shift and the shared timeline survives. Checked by cross-correlation: 1.6 s of audio lead before, frame-exact after. The manual nudge in Settings remains as a fine-tune and applies at MP4 conversion, shifting timestamps without touching samples.
 
 Recorder processes are tied to a Windows job object: if the app dies hard, the OS kills them instead of leaving ffmpeg recording as an orphan.
 
@@ -89,7 +89,7 @@ Neither goes into the repository.
 
 ## Author & feedback
 
-Made by **Emy69**. This is the free version — follow the project and send feedback:
+Made by **Emy69**. This is the free version. Follow the project or send feedback:
 
 - Patreon: https://www.patreon.com/c/emy69
 - Discord: https://discord.com/invite/ku8gSPsesh

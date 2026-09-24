@@ -2,7 +2,7 @@
 
 t('English text', 'Texto en español') returns the variant matching the
 configured language. English is the default. The log file stays English
-regardless of the setting — it is diagnostics, not UI.
+regardless of the setting, since it is diagnostics rather than UI.
 """
 from __future__ import annotations
 
