@@ -323,3 +323,12 @@ def test_the_build_does_not_ship_the_builders_paths():
                  '\\\\server\\share\\mod.py'):
         out = module._neutral(path)
         assert ':' not in out and not out.startswith('//'), out
+
+def test_the_build_does_not_ship_the_test_framework():
+    """A frozen app has no use for pytest, and it only arrives by accident:
+    nicegui.testing imports it, and the whole nicegui package is frozen. The
+    0.2.0 zip carried 80 files of it before this.
+    """
+    excluded = set(_freeze_list('EXCLUDES'))
+    wanted = {'pytest', '_pytest', 'pluggy', 'iniconfig', 'nicegui.testing'}
+    assert wanted <= excluded, f'no longer excluded: {sorted(wanted - excluded)}'

@@ -40,7 +40,12 @@ PACKAGES = ['recam', 'nicegui', 'uvicorn', 'wsproto', 'engineio', 'socketio',
             'webview', 'clr_loader', 'pythonnet', 'yt_dlp', 'httpx', 'certifi',
             'PIL', 'pystray', 'send2trash', 'rich']
 
-EXCLUDES = ['streamlink', 'tkinter', 'unittest', 'pydoc_data', 'pip', 'setuptools']
+# nicegui.testing is the only thing here that imports pytest, so excluding it
+# takes the whole test framework (pytest, pluggy, iniconfig) out with it: about
+# 1.3 MB and 80 files of scaffolding a downloaded app never runs. Nothing else
+# in the bundle imports them; webview.util only checks sys.modules for the name.
+EXCLUDES = ['streamlink', 'tkinter', 'unittest', 'pydoc_data', 'pip', 'setuptools',
+            'pytest', '_pytest', 'pluggy', 'iniconfig', 'nicegui.testing']
 
 
 def freeze() -> None:
