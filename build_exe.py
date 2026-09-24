@@ -14,8 +14,11 @@ script, they are copied in so testers do not have to install anything.
 """
 from __future__ import annotations
 
+import importlib.util
+import marshal
 import shutil
 import sys
+import types
 import zipfile
 from pathlib import Path
 
@@ -65,6 +68,71 @@ def freeze() -> None:
     )
 
 
+# Every .pyc records in co_filename the absolute path of the .py it was compiled
+# from, and that is what a traceback prints. Those paths name the account and
+# the folder the build ran in, which does not belong in a file other people
+# download, so they are rewritten to short relative ones that still say which
+# module a frame came from.
+_ROOTS = (
+    ('.venv/lib/site-packages/', 'site-packages/'),
+    ('python312/lib/', 'python/lib/'),
+)
+
+
+def _neutral(path: str) -> str:
+    """Map one absolute build path to something safe to ship."""
+    unix = path.replace('\\', '/')
+    low = unix.lower()
+    for mark, prefix in _ROOTS:
+        at = low.find(mark)
+        if at != -1:
+            return prefix + unix[at + len(mark):]
+    for mark in ('/recam/', '/app.py', '/build_exe.py'):
+        at = low.find(mark)
+        if at != -1:
+            return unix[at + 1:]
+    if unix[1:3] == ':/' or unix.startswith('//'):
+        return unix.rsplit('/', 1)[-1]      # last resort: just the file name
+    return path
+
+
+def _rewrite(code: types.CodeType) -> types.CodeType:
+    """`code` with co_filename neutralised, nested code objects included."""
+    consts, changed = [], False
+    for const in code.co_consts:
+        if isinstance(const, types.CodeType):
+            sub = _rewrite(const)
+            changed = changed or sub is not const
+            consts.append(sub)
+        else:
+            consts.append(const)
+    target = _neutral(code.co_filename)
+    if target == code.co_filename and not changed:
+        return code
+    if changed:
+        return code.replace(co_filename=target, co_consts=tuple(consts))
+    return code.replace(co_filename=target)
+
+
+def scrub_paths(root: Path) -> int:
+    """Strip the build machine out of every .pyc under `root`.
+
+    The 16-byte header is left alone: its mtime and source-size fields describe
+    the original .py, which a frozen app never ships, so nothing validates them.
+    """
+    magic, done = importlib.util.MAGIC_NUMBER, 0
+    for path in root.rglob('*.pyc'):
+        data = path.read_bytes()
+        if data[:4] != magic:
+            continue
+        original = marshal.loads(data[16:])
+        code = _rewrite(original)
+        if code is not original:
+            path.write_bytes(data[:16] + marshal.dumps(code))
+            done += 1
+    return done
+
+
 def main() -> None:
     freeze()
 
@@ -79,6 +147,8 @@ def main() -> None:
             if f.is_file() and f.name != 'ffplay.exe':
                 shutil.copy2(f, target / f.name)
         print(f'bundled ffmpeg ({sum(1 for _ in target.iterdir())} files)')
+
+    print(f'scrubbed build paths from {scrub_paths(DIST)} .pyc files')
 
     out = BUILD / f'Recam-{__version__}.zip'
     out.unlink(missing_ok=True)

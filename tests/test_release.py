@@ -8,6 +8,7 @@ exe would not ship, a string that lost one of its two languages.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import re
 import string
@@ -289,3 +290,36 @@ def test_everything_the_release_ships_is_present():
                  ROOT / 'app.py', ROOT / 'build_exe.py'):
         assert path.exists(), path
     assert DOCS, 'the build ships no documentation at all'
+
+def test_the_build_does_not_ship_the_builders_paths():
+    """A .pyc keeps the absolute path of its source in co_filename, so a plain
+    freeze hands every downloader the account name and folder layout of whoever
+    built it. build_exe.scrub_paths rewrites them; this checks it actually does.
+    """
+    spec = importlib.util.spec_from_file_location('_build_exe', ROOT / 'build_exe.py')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules['_build_exe'] = module
+    try:
+        spec.loader.exec_module(module)
+    except ImportError:                      # cx_Freeze is not a test dependency
+        pytest.skip('cx_Freeze not installed')
+    finally:
+        sys.modules.pop('_build_exe', None)
+
+    for before, after in [
+        ('C:\\Users\\someone\\AppData\\Local\\Programs\\Python\\'
+         'Python312\\Lib\\asyncio\\base_events.py',
+         'python/lib/asyncio/base_events.py'),
+        ('D:\\work\\proj\\.venv\\Lib\\site-packages\\nicegui\\ui.py',
+         'site-packages/nicegui/ui.py'),
+        ('C:\\somewhere\\checkout\\recam\\platforms.py',
+         'recam/platforms.py'),
+        ('C:\\somewhere\\checkout\\app.py', 'app.py'),
+    ]:
+        assert module._neutral(before) == after
+
+    # whatever the shape, nothing absolute may survive
+    for path in ('C:\\Users\\someone\\odd\\place\\mod.py',
+                 '\\\\server\\share\\mod.py'):
+        out = module._neutral(path)
+        assert ':' not in out and not out.startswith('//'), out
