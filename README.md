@@ -1,44 +1,113 @@
 # Recam
 
-**v0.2.0** · [Changelog](CHANGELOG.md)
+**v0.2.0** · [Download for Windows](https://github.com/Emy69/Recam-lite/releases/latest) · [Changelog](CHANGELOG.md)
 
-> **⚠ Free version.** This is an early version and it records **Chaturbate only** for now. Expect rough edges. Bug reports, confusing bits and ideas are all welcome and help decide what comes next. Thanks for testing!
+Recam watches Chaturbate channels and records them the moment they go live, then
+keeps the results organised: thumbnails, in-app playback that remembers where you
+left off, renaming, filtering, and a delete that goes to the recycle bin.
 
-A desktop app that watches **Chaturbate** channels, records their streams automatically the moment they go live, and helps you organize the results: live preview while recording, thumbnails, in-app playback with resume, renaming, filtering, and a recycle-bin-safe delete. The interface is NiceGUI in a native window, and the engine also runs without it. (Support for more platforms is already inside the engine and planned for later builds.)
+> **Free version.** It records **Chaturbate** only. The engine already handles
+> other sites, and enabling them is planned for later releases.
 
-> Personal use only. These platforms' terms of service do not allow recording or redistributing content; the files stay on your disk.
+> Personal use only. These platforms' terms of service do not allow recording or
+> redistributing content. The files stay on your disk.
 
-## Requirements
+---
 
-- Windows with Python 3.11+
-- ffmpeg: either on the PATH (`winget install Gyan.FFmpeg`) or downloaded with one click from Settings → Tools, which tells you when it is missing
+## Download and run
 
-## Install
+[**Get the latest release**](https://github.com/Emy69/Recam-lite/releases/latest),
+unzip it anywhere, and run `Recam.exe`.
+
+Nothing to install: ffmpeg comes bundled and you do not need Python. The app is
+portable, so everything it writes stays in its own folder. Move that folder and
+your settings and recordings go with it; delete it and nothing is left behind.
+
+Windows 10 or 11, 64-bit.
+
+## Using it
+
+**Panel** is where you add channels. Paste a channel URL, press Add, and the
+channel shows up as a tile.
+
+- Turn **Auto** on and Recam records that channel by itself whenever it goes
+  live. It is off on a new channel, so adding one only watches it.
+- **Record now** starts a capture immediately.
+- Tiles are ordered by what matters: recording first, then live, then the rest.
+  A recording tile shows a live frame of what is being captured.
+- The activity feed, behind the history icon in the header, says what happened
+  while you were away.
+
+**Library** is everything you have recorded, grouped into one section per
+channel. Click a thumbnail to play it in the app: 10-second skips, playback
+speed, and it remembers your volume and where you stopped. Select several at
+once to send them to the recycle bin together.
+
+A recording marked **RAW** is a capture that was interrupted, by a power cut for
+instance. It is still watchable, and one click converts it to MP4.
+
+**Settings** covers where recordings go, quality, how often channels are checked,
+the file name template, interface language (English or Spanish), starting with
+Windows, and access from your phone over the local network. If ffmpeg is ever
+missing, Settings offers to download it in one click.
+
+**Closing.** Minimizing just minimizes. The **X** asks whether to hide Recam to
+the tray, where it keeps recording in the background, or to quit. Quitting
+finishes and saves whatever is being captured first, so closing the window never
+costs you a recording.
+
+## Where your files are
+
+Both folders sit next to `Recam.exe`:
+
+- `grabaciones/<channel>/` for the recordings, which you can point elsewhere in Settings
+- `data/` for the settings, the channel list and `recam.log`
+
+## If something goes wrong
+
+**A network warning, or "too many requests".** Chaturbate limits how often it can
+be asked who is live, and does not publish the limit. Recam spaces its requests
+out and waits longer whenever it is refused. With a long channel list, raise
+**Check every** in Settings.
+
+**A recording with no sound.** The log says so explicitly: look for a `NO AUDIO`
+line in `data/recam.log`.
+
+**Private and ticket shows cannot be recorded.** They are not served publicly.
+
+Reporting anything odd genuinely helps decide what gets fixed next. Links are at
+the bottom.
+
+---
+
+## Running from source
+
+Only needed to change the code or to use the command line. The downloaded
+release includes neither.
+
+Requires **Python 3.11+** and ffmpeg, either on your PATH
+(`winget install Gyan.FFmpeg`) or fetched from Settings → Tools.
 
 ```
 py -3 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
 
-## Usage
+Then `.venv\Scripts\pythonw.exe app.py` for the native window, or `python app.py`,
+which also serves the interface at http://127.0.0.1:8211.
 
-Run `.venv\Scripts\pythonw.exe app.py` for the native window, or `python app.py`, which also serves http://127.0.0.1:8211.
+### Command line
 
-- **Panel** — paste a channel URL and press Add. With *Auto* on it starts recording the moment the channel goes live; you can also force it with *Record now*. Channels show as a grid of tiles sorted by state (recording first, then live), the recording ones with a live preview frame. An activity feed shows what happened while you were away.
-- **Library** — recordings grouped into one collapsible section per profile, as thumbnail tiles with duration badges. Click a tile to play in the built-in player (±10 s skips, playback speed, remembers your volume and where you left off). Multi-select sends several recordings to the recycle bin at once. Raw `.ts` captures (interrupted recordings) convert to MP4 with one click.
-- **Settings** — destination folder, quality, poll interval, file name template, interface language (English/Spanish), start with Windows, LAN access (watch the panel from your phone) and one-click updates of yt-dlp/streamlink.
-
-Minimizing minimizes normally. The window **X** asks whether to hide the app to the tray, where it keeps recording in the background, or quit. Quitting finalizes captures in flight into playable MP4s first.
-
-## Headless (server / bot / CLI)
-
-The engine needs no interface. With `python -m recam.cli`:
+The engine runs with no interface at all, which is what you want on a server or
+behind a bot. **This only works from source**, since the packaged release ships
+the app rather than a Python interpreter.
 
 ```
 python -m recam.cli dashboard           # interactive terminal panel
-python -m recam.cli run                 # daemon; Ctrl+C finalizes captures and exits
+python -m recam.cli run                 # daemon; Ctrl+C finishes captures and exits
 python -m recam.cli now                 # what is recording, from another terminal
 python -m recam.cli stop <user>         # stop a capture in flight (or 'all')
+python -m recam.cli shutdown            # ask a running daemon to stop cleanly
 python -m recam.cli add <url>           # add a channel
 python -m recam.cli auto <user> off     # toggle auto-record
 python -m recam.cli remove <user>       # remove a channel
@@ -47,9 +116,11 @@ python -m recam.cli status              # who is live right now
 python -m recam.cli offset <ms>         # fine audio nudge (normally unnecessary)
 ```
 
-`now` and `stop` talk to whichever process is recording through `data/`, so they work from another terminal while the GUI or the daemon stays up.
+`now`, `stop` and `shutdown` talk to whichever process is recording through
+`data/`, so they work from a second terminal while the app or the daemon keeps
+running.
 
-The **dashboard** is the Panel in terminal form, in real time:
+`dashboard` is the Panel in terminal form, live:
 
 | Key | Action |
 |---|---|
@@ -61,35 +132,56 @@ The **dashboard** is the Panel in terminal form, in real time:
 | r | record the selection now |
 | s | stop the selection's capture |
 | x | stop every capture |
-| v | toggle global monitoring |
-| q | quit (finalizes whatever is recording) |
+| v | toggle automatic monitoring |
+| q | quit (finishes whatever is recording) |
 
-Do not leave `dashboard` and `run` open at the same time: both would record the same channels.
+Do not leave `dashboard` and `run` open at the same time: both would record the
+same channels.
+
+### Tests
+
+```
+.venv\Scripts\pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m pytest
+```
+
+No network, no ffmpeg and no browser involved. See [tests/README.md](tests/README.md).
+
+---
 
 ## How it works
 
-An asyncio service checks every X seconds who is live against each site's public APIs. If one does not answer, it tries anyway and lets the recorder decide.
+An asyncio service asks Chaturbate's public API who is live every few seconds.
+Requests to one site are spaced out so a long channel list does not arrive as a
+burst, and if the site answers 429 anyway the app waits longer before asking
+again, since retrying during a refusal only extends it. The spacing it learns
+that way is remembered between runs.
 
-Requests to the same site are spaced out (no bursts with many channels), and if a 429 still arrives the app backs off with a growing wait, since retrying during one only extends it.
+A capture is written straight to a `.ts` file, which survives a power cut or a
+hard close. ffmpeg downloads the HLS stream and copies audio and video as they
+are, with no re-encoding, so recording costs almost no CPU. When the broadcast
+ends the file is remuxed to MP4, also a plain copy, given a thumbnail, and added
+to the library. While recording, a recent frame is pulled out of the growing file
+every 15 seconds or so: that is the live preview on the tile.
 
-The capture goes to a `.ts`, which survives a power cut or a hard close: ffmpeg downloads the HLS directly and muxes audio and video as-is, no re-encoding. (The engine also carries support for other platforms, disabled in this build.)
+Recorder processes are tied to a Windows job object, so if Recam dies hard the
+system kills them with it instead of leaving ffmpeg recording forever in the
+background.
 
-While recording, a recent frame is pulled from the growing file every ~15 seconds as a live preview. When it ends: remux to MP4 (also a pure copy), thumbnail, and into the library.
+**Audio sync.** Cam sites publish audio and video as two separate HLS playlists.
+Given both as separate inputs, ffmpeg starts each one at zero on its own: it
+opens the video first, spends a couple of seconds probing it, and by then the
+audio's live edge has moved on, so the audio ends up ahead of the picture by a
+different amount every time. Recam instead builds one small local playlist
+holding the chosen video and its matching audio and hands ffmpeg that single
+input, so one common shift applies to both and the original timing survives.
+Measured by cross-correlation: 1.6 s of audio lead before, frame-exact after. The
+manual nudge in Settings stays as a fine-tune and applies when the file is
+converted, shifting timestamps without touching the audio itself.
 
-**Audio sync.** Cam sites publish audio and video as two separate HLS playlists. Handing them to ffmpeg as two inputs makes it zero-shift each one independently: it opens the video first, spends a couple of seconds probing it, and by then the audio's live edge has moved on, so the audio lands that far ahead by a different amount every capture. The fix is a **single input**: a small local master playlist with the chosen video variant and its audio rendition, so ffmpeg applies one common shift and the shared timeline survives. Checked by cross-correlation: 1.6 s of audio lead before, frame-exact after. The manual nudge in Settings remains as a fine-tune and applies at MP4 conversion, shifting timestamps without touching samples.
+## Author
 
-Recorder processes are tied to a Windows job object: if the app dies hard, the OS kills them instead of leaving ffmpeg recording as an orphan.
-
-## Where everything lives
-
-- `grabaciones/<streamer>/` — the videos (configurable in Settings).
-- `data/` — configuration, channel list, library cache and `recam.log`.
-
-Neither goes into the repository.
-
-## Author & feedback
-
-Made by **Emy69**. This is the free version. Follow the project or send feedback:
+Made by **Emy69**.
 
 - Patreon: https://www.patreon.com/c/emy69
 - Discord: https://discord.com/invite/ku8gSPsesh
